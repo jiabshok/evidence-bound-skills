@@ -1,0 +1,31 @@
+{"title":"INH-7 blocks ZK1-dependent induction of *gla* (synthetic example)",
+ "canvas":{"width_mm":180,"font_pt":8,"dpi":300},
+ "layout":[["A"],["B","C"]],
+ "panels":[
+  {"id":"A","type":"diagram","title":"Mechanism as described","direction":"TB",
+   "groups":[{"id":"out","label":"Extracellular","src":"P001"},{"id":"mem","label":"Plasma membrane","kind":"membrane","src":"P001"},{"id":"cyt","label":"Cytoplasm","src":"P001"},{"id":"nuc","label":"Nucleus","src":"P001"}],
+   "nodes":[
+    {"id":"L","label":"Ligand L","kind":"small_molecule","group":"out","src":"P002"},
+    {"id":"RX","label":"RX","kind":"receptor","group":"mem","src":"P002"},
+    {"id":"ZK1","label":"ZK1","kind":"enzyme","group":"cyt","src":"P002"},
+    {"id":"INH7","label":"INH-7","kind":"drug","group":"cyt","src":"P002"},
+    {"id":"TF9","label":"TF9","kind":"protein","group":"cyt","src":"P002"},
+    {"id":"gla","label":"*gla*","kind":"gene","group":"nuc","src":"P002"},
+    {"id":"GLA","label":"GLA product","kind":"protein","group":"nuc","src":"P003"}],
+   "edges":[
+    {"from":"L","to":"RX","type":"binding","src":"P002"},
+    {"from":"RX","to":"ZK1","type":"activation","src":"P002"},
+    {"from":"INH7","to":"ZK1","type":"inhibition","src":"P002"},
+    {"from":"ZK1","to":"TF9","type":"phosphorylation","src":"P002"},
+    {"from":"TF9","to":"gla","type":"transport","label":"nuclear entry; induces","src":"P002"},
+    {"from":"gla","to":"GLA","type":"expression","src":"P003"},
+    {"from":"GLA","to":"RX","type":"inhibition","certainty":"proposed","label":"proposed, not tested","src":"P003"}]},
+  {"id":"B","type":"chart","chart":"line","title":"Reporter response","data":"response.csv","x":"time_min","y":"mean_afu","group":"treatment","err":"sd_afu","err_meaning":"SD, n = 4 wells","xlabel":"Time (min)","ylabel":"Reporter signal (a.u.)","note":"Mean ± SD, n = 4 independent wells.","src":["response.csv#1-8","P004"],"weight":1.5},
+  {"id":"C","type":"text","title":"Reading the figure","items":[
+    {"value":"24.3","text":"a.u. at 60 min with INH-7","src":"response.csv#8"},
+    {"value":"88.1","text":"a.u. at 60 min with vehicle","src":"response.csv#4"},
+    {"text":"The feedback onto RX is a proposal and was not tested.","src":"P003"}]}],
+ "caption":"(A) Relations stated in the supplied note; the dashed relation is proposed only. (B) Reporter signal, mean ± SD, n = 4. Schematic, not to scale.",
+ "footnotes":["Schematic; not to scale."],
+ "unresolved":[{"item":"location of INH-7 binding on ZK1","state":"not reported in the source","src":"P002"}],
+ "decisions":["Feedback drawn dashed because the source calls it proposed and untested."]}

@@ -1,0 +1,1 @@
+{"case_id":"SYN-FIGURE","kind":"synthetic example, not a formal case","output_contract":["case_id","status","editable_source","export_artifact","content_map","compliance_checks","exceptions"],"task":"Draw a two-panel figure: the signalling mechanism and the measured response. Keep stated and proposed relations distinguishable."}

@@ -1,0 +1,9 @@
+time_min,treatment,mean_afu,sd_afu,n
+0,vehicle,10.2,1.1,4
+10,vehicle,34.8,3.0,4
+30,vehicle,71.5,5.2,4
+60,vehicle,88.1,6.4,4
+0,INH-7,9.9,0.9,4
+10,INH-7,14.1,1.8,4
+30,INH-7,19.6,2.2,4
+60,INH-7,24.3,2.7,4
