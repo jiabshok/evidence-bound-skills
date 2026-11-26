@@ -1467,8 +1467,79 @@ def write_result(d):
         if base.get(k) is None and (k in contract() or k in CONTRACT):
             base[k] = v
     base.setdefault("status", "partial")
+    base["delivery_report"] = os.path.join(OUT, "REPORT.md")
     jsave(os.path.join(OUT, "result.json"), base)
+    try:
+        write_report(base)
+    except Exception as exc:  # the report never blocks the delivery
+        base.pop("delivery_report", None)
+        jsave(os.path.join(OUT, "result.json"), base)
+        say("(report skipped: %s)" % exc)
     return base
+
+
+def _cell(t, n=160):
+    t = re.sub(r"\s+", " ", str(t if t is not None else "")).replace("|", "/")
+    return t if len(t) <= n else t[:n - 1] + "\u2026"
+
+
+def write_report(r):
+    """REPORT.md: a reader's summary of result.json - what was delivered, which requirement lines it answers, what was checked, what is open."""
+    cm = r.get("content_map") or []
+    ck = r.get("compliance_checks") or []
+    ex = r.get("exceptions") or []
+    L = ["# Delivery report: %s" % (r.get("case_id") or "case"), ""]
+    L.append("Status: **%s**. Written by the engine from `result.json` (the full record; this page only summarises it)." % r.get("status"))
+    if r.get("title"):
+        L.append("Title: %s" % _cell(r.get("title"), 300))
+    L += ["", "## Files", "", "| file | what | check |", "|---|---|---|"]
+    es = r.get("editable_source") or {}
+    if es.get("path"):
+        L.append("| `%s` | editable source (%s) | sha256 %s |" % (os.path.basename(str(es["path"])), _cell(es.get("format", ""), 60), str(es.get("sha256", ""))[:12]))
+    for k, v in (r.get("export_artifact") or {}).items():
+        if isinstance(v, dict) and v.get("path"):
+            info = ", ".join("%s %s" % (q, v[q]) for q in ("pixels", "dpi", "pages", "bytes") if v.get(q) is not None)
+            L.append("| `%s` | %s | %s |" % (os.path.basename(str(v["path"])), k, _cell(info, 80)))
+    if (r.get("edit_record") or r.get("change_record")):
+        L.append("| `edit_record.json` / change record | requested edit, element-by-element comparison with the first version | see below |")
+    srcd = sum(1 for c in cm if c.get("source"))
+    L += ["", "## Traceability", "", "%d mapped elements, %d with a cited source (file, locator and quote in `result.json` -> content_map)." % (len(cm), srcd)]
+    unc = [c for c in cm if str(c.get("certainty") or "") not in ("", "stated", "observed")]
+    if unc:
+        L.append("%d elements are drawn or written as not established (proposed, cited literature, uncertain): %s." % (len(unc), "; ".join(_cell("%s -> %s %s" % (c.get("from", ""), c.get("to", ""), c.get("certainty")) if c.get("from") else "%s %s" % (c.get("label") or c.get("element_id"), c.get("certainty")), 60) for c in unc[:8])))
+    L += ["", "## Checks on the delivered files", "", "| check | result | detail | method |", "|---|---|---|---|"]
+    for c in ck:
+        L.append("| %s | %s | %s | %s |" % (c.get("check"), c.get("result"), _cell(c.get("detail"), 180), _cell(c.get("method"), 80)))
+    npass = sum(1 for c in ck if c.get("result") == "pass")
+    L.append("")
+    L.append("%d of %d checks pass; the others are open and disclosed below." % (npass, len(ck)) if npass < len(ck) else "All %d checks pass." % len(ck))
+    rec = r.get("edit_record") or r.get("change_record")
+    if isinstance(rec, dict) and rec:
+        L += ["", "## Requested edit", "", "- request: %s" % _cell(rec.get("request"), 300)]
+        for k in ("changed", "added", "removed"):
+            v = rec.get(k)
+            if isinstance(v, list):
+                L.append("- %s: %d %s" % (k, len(v), _cell(", ".join(str(x.get("id") if isinstance(x, dict) else x) for x in v[:12]), 260)))
+        for k in ("unchanged_elements", "page_coordinate_system", "edit_scope", "outside_scope"):
+            if rec.get(k) not in (None, [], ""):
+                L.append("- %s: %s" % (k.replace("_", " "), _cell(rec.get(k), 260)))
+    elif isinstance(rec, list) and rec:
+        L += ["", "## Changes", ""] + ["- %s" % _cell(json.dumps(x, ensure_ascii=False), 220) for x in rec[:20]]
+    L += ["", "## Exceptions, conflicts and limits (%d)" % len(ex), ""]
+    for x in ex[:30]:
+        if isinstance(x, dict):
+            L.append("- **%s** - %s. %s" % (_cell(x.get("item"), 120), _cell(x.get("state"), 80), _cell(x.get("detail") if not isinstance(x.get("detail"), (dict, list)) else json.dumps(x.get("detail"), ensure_ascii=False), 220)))
+        else:
+            L.append("- %s" % _cell(x, 240))
+    if not ex:
+        L.append("None recorded.")
+    rr = r.get("run_record") or {}
+    pv = r.get("provenance") or {}
+    L += ["", "## Reproduce", ""]
+    if es.get("rebuild_command"):
+        L.append("- rebuild from the delivered specification: `%s`" % es["rebuild_command"])
+    L.append("- engine: %s; inputs hashed: %d%s" % (pv.get("engine", ""), len(pv.get("inputs") or []), "; builds in this run: %s, minutes: %s" % (rr.get("builds_so_far"), rr.get("minutes_since_start")) if rr else ""))
+    open(os.path.join(OUT, "REPORT.md"), "w", encoding="utf-8").write("\n".join(L) + "\n")
 
 
 def check(name, ok, detail, method):

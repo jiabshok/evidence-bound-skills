@@ -7,7 +7,7 @@ These are **local practice runs**, not the official cases or scores. Each practi
 | condition | runs | runs with deliverables | local effect score /40, mean (range) | seconds, mean (range) | model requests, mean (range) |
 |---|---|---|---|---|---|
 | without Skill | 2 | 1 | 29.5 (21-38) | 827.0 (754-900) | 45.0 (39-51) |
-| with this Skill (v1.7-1.10) | 4 | 4 | 31.0 (30-33) | 642.0 (413-740) | 39.2 (34-43) |
+| with this Skill (v1.7-1.14) | 8 | 8 | 32.2 (30-34) | 584.6 (402-740) | 35.9 (23-43) |
 
 Without the Skill: stopped at the time limit with partial files (900 s).
 

@@ -116,7 +116,26 @@ def export(svg, stem, w_mm, h_mm, dpi=300, extra=()):
         log.append("png metadata: %s" % exc)
     if "eps" in [f.lower().lstrip(".") for f in extra] and shutil.which("pdftops") and os.path.exists(pdf):
         _run(["pdftops", "-eps", pdf, stem + ".eps"])
-    files = [stem + e for e in (".png", ".pdf", ".tiff", ".jpg", ".eps") if os.path.exists(stem + e)]
+    hi = stem + "_300dpi.png"
+    if os.path.exists(hi):
+        os.remove(hi)
+    if dpi < 299 and os.path.exists(pdf):  # pixel canvas below print resolution: add a 300 dpi copy of the same page
+        try:
+            if shutil.which("pdftoppm"):
+                _run(["pdftoppm", "-r", "300", "-png", "-singlefile", pdf, stem + "_300dpi"])
+            else:
+                fn = {f.__name__.strip("_"): f for f in (_chromium, _cairosvg, _rsvg, _inkscape)}.get(used)
+                if fn:
+                    tmp = stem + "_300dpi_tmp.pdf"
+                    fn(svg, hi, tmp, w_mm, h_mm, 300)
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+            if os.path.exists(hi):
+                from PIL import Image
+                Image.open(hi).convert("RGB").save(hi, dpi=(300, 300))
+        except Exception as exc:
+            log.append("300 dpi copy: %s" % str(exc)[:140])
+    files = [stem + e for e in (".png", ".pdf", ".tiff", ".jpg", ".eps", "_300dpi.png") if os.path.exists(stem + e)]
     return {"renderer": used, "fallback_log": log, "files": files}
 
 

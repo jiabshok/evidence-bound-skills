@@ -43,7 +43,7 @@ from kit_sources import (INPUT, WORK, OUT, CONTRACT, jload, jsave, say, walk_inp
 
 from kit_sources import elapsed as ks_elapsed  # noqa: E402
 
-VERSION = "1.10.0"
+VERSION = "1.14.0"
 
 # --- spec validation -------------------------------------------------------------
 ALIAS_T = {"dimerization": "dimerisation", "dimerises": "dimerisation", "dimerizes": "dimerisation", "heterodimerisation": "dimerisation", "heterodimerization": "dimerisation", "homodimerisation": "dimerisation", "complex_formation": "dimerisation", "dimer": "dimerisation",
@@ -808,7 +808,7 @@ def cmd_build(a):
     v1_layout = os.path.join(WORK, "layout_before_edit.json")
     if a.revise and os.path.exists(prev_svg):
         if not os.path.exists(v1):  # freeze the first version once; every retry is compared with it
-            for e in (".svg", ".png", ".pdf"):
+            for e in (".svg", ".png", ".pdf", "_300dpi.png"):
                 if os.path.exists(os.path.join(OUT, "figure" + e)):
                     shutil.copy(os.path.join(OUT, "figure" + e), os.path.join(OUT, "figure_before_edit" + e))
             if os.path.exists(layout_file):
@@ -977,6 +977,13 @@ def cmd_build(a):
                 miss = trace_numbers(cells, [x for x in (p.get("src") if isinstance(p.get("src"), list) else [p.get("src")]) if x and x != p["data"]])
                 if miss:
                     untraced.append({"element": p["id"] + "-chart (typed data)", "numbers": miss[:12]})
+    if untraced:   # the record must not call a number stated when its cited text does not contain it
+        bad_ = {u["element"]: u["numbers"] for u in untraced}
+        for c_ in cmap:
+            if c_.get("element_id") in bad_:
+                c_["number_check"] = "not found in the cited text: %s" % ", ".join(map(str, bad_[c_["element_id"]][:6]))
+                if str(c_.get("certainty") or "stated") in ("stated", "observed"):
+                    c_["certainty"] = "derived or unverified (number not in the cited text)"
     checks.append(check("numbers_traceable", not untraced, "every number printed on the figure occurs in its cited source" if not untraced else
                         "not found verbatim in the cited source (verify, or cite the right source / mark as derived): %s" % json.dumps(untraced[:8], ensure_ascii=False), "numeric tokens searched in the cited passages/rows"))
     # edit record
@@ -1358,7 +1365,7 @@ def cmd_edit(a):
     if not w and vb:
         w, h = vb[2] * 25.4 / 96, vb[3] * 25.4 / 96
     exp = fk_export.export(after, os.path.join(OUT, "figure"), w, h, 300)
-    exp0 = fk_export.export(before, os.path.join(OUT, "figure_before_edit"), w, h, 150)
+    exp0 = fk_export.export(before, os.path.join(OUT, "figure_before_edit"), w, h, 300)
     jsave(os.path.join(OUT, "edit_record.json"), rec)
     say("EDIT: %d applied, %d failed; changed %d leaf elements, added %d, removed %d, byte-identical %d" % (
         sum(x["result"] == "applied" for x in log), sum(x["result"] != "applied" for x in log), len(rec["changed"]), len(rec["added"]), len(rec["removed"]), rec["unchanged_elements"]))
@@ -1451,7 +1458,7 @@ def cmd_verify(a):
     if att:
         say("OPEN CHECKS (disclosed in exceptions):", att)
     if not bad and ks_elapsed() > 5.5:
-        say("DONE at %.1f min: the delivery is complete and checked. Answer with one short sentence now; do not open, list or edit any file again (the run is cut at minute 15)." % ks_elapsed())
+        say("DONE at %.1f min: the delivery is complete and checked. FINAL STEP: reply with one short sentence and end. Do not view the image, open result.json, edit_record.json or REPORT.md, list files or run any command again: everything is written and verified, and every extra call only adds time (the run is cut at minute 15)." % ks_elapsed())
     nrev, fresh = review_state()
     if ks_elapsed() < 5.5 and (nrev == 0 or (nrev < 2 and not fresh)):
         say("NOT DONE YET: %s (%.1f of 15 min used)." % ("run review once - claims against quotes, requirements, possibly missing terms" if nrev == 0 else "content changed since the last review: run review again and close the remaining gaps", ks_elapsed()))

@@ -7,6 +7,8 @@ description: Generate or edit scientific data charts (bar, stacked, line, scatte
 
 Use when the task is to draw or edit charts from source data. The value of the figure is that each mark equals a table cell; the engine proves this by inverting the drawn geometry back to numbers.
 
+**Never inspect `/app/output` with your own commands** (cat, sed, ls, python on result.json, edit_record.json, REPORT.md): every engine command prints what it found, `review` prints the claims, `verify` prints the final state. Each extra read costs 30-60 s of a 15-minute run.
+
 ## Rules for this task
 
 - Run `table FILE` first: note units, grouping columns, missing values, replicates versus summaries, and what the error column means. If the meaning of the error column is not stated anywhere, plot it only if asked, set `err_meaning` to "not stated in source" and add an `unresolved` entry.

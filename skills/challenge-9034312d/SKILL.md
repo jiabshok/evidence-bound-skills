@@ -9,6 +9,8 @@ Use when the task is an apparatus, a process flow or a technical route. Someone 
 
 **Do not read the paper up front** (no cat, grep or python on material.json, PDFs or text files). Runs that did used 6-12 of their 15 minutes before the first drawing and lost the edit. `start` and `next` select the passages for every requirement; open one more passage with `show` only when an item names a fact you cannot see.
 
+**Never inspect `/app/output` with your own commands** (cat, sed, ls, python on result.json, edit_record.json, REPORT.md): every engine command prints what it found, `review` prints the claims, `verify` prints the final state. Each extra read costs 30-60 s of a 15-minute run.
+
 ## Rules for this task
 
 - Must-show facts must be readable ON the figure (node note, edge label, text item or footnote), each with its comparator, unit and n; caption or result.json alone does not count. They stay visible in the edited version too. State factor levels and replicates in words ("control / treated, n = 3 per cell"), not as "2x3x3". A null result the order names (no interaction, n.s.) is written out.
@@ -16,11 +18,11 @@ Use when the task is an apparatus, a process flow or a technical route. Someone 
 - Size: at most about 14 apparatus nodes and 14 route steps when the page size is fixed; on a page near 200 x 140 mm stay near 10 + 10. Over that, merge consecutive actions of the same phase into one step and identical parts into one "x2" node unless the source splits a stream between them (say so in `decisions`); never drop an inline unit.
 - In a panel with groups give every node a group. Groups are subsystems (supply, reaction zone, detection) or phases; if the order wants a time axis or sampling days, add a `timeline` panel as the last row (it replaces day labels scattered over steps).
 - Line types: material/gas/liquid, energy, signal/data/control are different; never mix them in one line. Joints: `assembly`. A leaving stream with no stated destination: node "not specified" plus an `unresolved` entry.
-- Design splits are drawn as splits: treatment first, then the sub-branches inside each treatment, with n on every branch. Dosing nodes carry reagent, concentration and amount per addition; a change of analytical method carries its days and its limit.
+- Design splits are drawn as splits: treatment first, then the sub-branches inside each treatment, with n on every branch. A crossed design (2 treatments x stressed/control) is four separate branch nodes ("+A stressed, n = 2", "+A control, n = 2", "-A stressed, n = 2", "-A control, n = 2"), never two shared boxes fed by both treatments. Each analyte keeps its own sampling days (one timeline lane per analyte group), and steps run in time order (baseline sampling before the stress). Dosing nodes carry reagent, concentration and amount per addition; a change of analytical method carries its days and its limit.
 - Recirculating water, gas or material keeps its own type (`liquid`, `gas`, `material`) all the way round; `return` is for procedure loops (repeat, recycle step). A point of entry or exit the source does not name is not drawn as stated: node "entry not specified" or a footnote. Control or untreated branches bypass the treatment steps and rejoin at the common sampling.
 - One unit with two names in the source = one node; name the alias in a visible footnote ("X = Y in the text"); volumes that do not add up to the printed total: visible footnote plus `unresolved`.
 - Steps: parameters (temperature, time, rate, n) exactly as given in `note`. Parallel steps: 4a/4b from the same predecessor (they align by themselves). Decisions show both outcomes; loops go back with `return`, label = stop condition or number of cycles.
-- Never move a value from one run, step or instrument to another. Missing dimension/model/flow rate: "not reported" in `unresolved`, no guess on the drawing.
+- Never move a value from one run, step or instrument to another. A flow, volume or time that you compute (sum, conservation, difference) is labelled as computed ("= 6 L min-1, computed") and its certainty is `derived`; `stated` only when the cited sentence prints it. Where the abstract and the methods differ (3 h vs 3-4 h), draw the methods value and footnote the difference. Missing dimension/model/flow rate: "not reported" in `unresolved`, no guess on the drawing.
 - Footnote "Schematic, not to scale." unless calibrated dimensions are supplied.
 
 ### Trace each flow, sentence by sentence

@@ -9,6 +9,8 @@ Use when the job is deciding what to say to whom in which order, and delivering 
 
 Mode: `build` in the supplied template. Use `edit` only if the work order wants the starting deck changed in place, `adapt` (no spec file) only if it must move as it is into another template. A starting deck that is only raw material: read it with `slide N --start`, then `build`.
 
+**Never inspect `/app/output` with your own commands** (cat, sed, ls, python on result.json, edit_record.json, REPORT.md): every engine command prints what it found, `review` prints the claims, `verify` prints the final state. Each extra read costs 30-60 s of a 15-minute run.
+
 ## Rules for this task
 
 - `goal`: a checkable outcome ("after the talk the audience can decide X / accept that Y holds under Z"). `audience`: who, what they know, what they care about, likely objections. `storyline`: the argument chain. All three are plain strings; use the work order's own goal and audience when given. They decide depth, jargon and cuts.

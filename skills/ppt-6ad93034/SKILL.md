@@ -7,6 +7,8 @@ description: Generate academic slides or edit an existing deck by instruction - 
 
 Mode from the work order: starting deck plus instructions -> `edit`; no starting deck -> `build`; starting deck that must move to another template -> `adapt`, then continue with edits. Not for writing papers, statistics or drawing figures.
 
+**Never inspect `/app/output` with your own commands** (cat, sed, ls, python on result.json, edit_record.json, REPORT.md): every engine command prints what it found, `review` prints the claims, `verify` prints the final state. Each extra read costs 30-60 s of a 15-minute run.
+
 ## Rules for this task
 
 - Turn every instruction into ops and tick them off; give each op `edit` (the instruction's id), `src` and `reason`. Read affected slides first: `slide N --start`.

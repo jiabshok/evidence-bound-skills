@@ -9,6 +9,8 @@ A reader must get question -> method -> key result -> conclusion in one look; a 
 
 **Do not read the paper up front** (no cat, grep or python on material.json, PDFs or text files). Runs that did used 6-12 of their 15 minutes before the first drawing and lost the edit. `start` and `next` select the passages for every requirement; open one more passage with `show` only when an item names a fact you cannot see.
 
+**Never inspect `/app/output` with your own commands** (cat, sed, ls, python on result.json, edit_record.json, REPORT.md): every engine command prints what it found, `review` prints the claims, `verify` prints the final state. Each extra read costs 30-60 s of a 15-minute run.
+
 ## Rules for this task
 
 - Must-show facts must be readable ON the figure (node note, edge label, text item or footnote), each with its comparator, unit and n; caption or result.json alone does not count. They stay visible in the edited version too. State factor levels and replicates in words ("control / treated, n = 3 per cell"), not as "2x3x3". A null result the order names (no interaction, n.s.) is written out.

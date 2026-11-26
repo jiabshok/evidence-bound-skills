@@ -7,7 +7,7 @@ These are **local practice runs**, not the official cases or scores. Each practi
 | condition | runs | runs with deliverables | local effect score /40, mean (range) | seconds, mean (range) | model requests, mean (range) |
 |---|---|---|---|---|---|
 | without Skill | 1 | 0 | - | 292 | 8 |
-| with this Skill (v1.7-1.10) | 3 | 3 | 34.3 (32-36) | 643.0 (612-680) | 36.3 (29-41) |
+| with this Skill (v1.7-1.14) | 7 | 7 | 33.0 (29-36) | 643.0 (517-764) | 37.3 (29-45) |
 
 Without the Skill: no deliverable: one response reached the 16384-token limit while the agent planned coordinates by hand (292 s, 8 requests).
 

@@ -7,7 +7,7 @@ These are **local practice runs**, not the official cases or scores. Each practi
 | condition | runs | runs with deliverables | local effect score /40, mean (range) | seconds, mean (range) | model requests, mean (range) |
 |---|---|---|---|---|---|
 | without Skill | 1 | 1 | 35 | 391 | 28 |
-| with this Skill (v1.7-1.10) | 2 | 2 | 37.0 (37-37) | 480.5 (467-494) | 24.5 (15-34) |
+| with this Skill (v1.7-1.14) | 5 | 5 | 35.4 (34-37) | 469.2 (352-552) | 25.2 (15-34) |
 
 ## What the Skill adds that the agent did not do on its own
 
@@ -18,4 +18,4 @@ These are **local practice runs**, not the official cases or scores. Each practi
 
 ## Limits
 
-The judge scores only the effect dimension; efficiency is shown by seconds and requests above. The Skill does not decide scientific truth: it binds each drawn or written claim to the source and discloses what it could not verify.
+The judge scores only the effect dimension; efficiency is shown by seconds and requests above. Where the agent without the Skill already produced a complete, well-sourced result, the Skill's gain is mainly in completion time, traceability and checked files rather than in the judged score; some practice runs with the Skill scored lower than the baseline run. The Skill does not decide scientific truth: it binds each drawn or written claim to the source and discloses what it could not verify.

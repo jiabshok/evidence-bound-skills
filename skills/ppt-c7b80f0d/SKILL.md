@@ -7,6 +7,8 @@ description: Turn a supplied paper or research material into an editable academi
 
 Structural rewrite: the paper's contribution becomes a sequence of one-claim pages, each tied to a figure, table, section or data row. Mode: `build`. Only if the work order asks to change a supplied starting deck use `edit`; to move a starting deck into the template use `adapt` (no spec file).
 
+**Never inspect `/app/output` with your own commands** (cat, sed, ls, python on result.json, edit_record.json, REPORT.md): every engine command prints what it found, `review` prints the claims, `verify` prints the final state. Each extra read costs 30-60 s of a 15-minute run.
+
 ## Rules for this task
 
 - Before planning read abstract, last introduction paragraph, core methods, the results you will cite, captions/tables and limitations. Write the contribution in one sentence; every slide must serve it.

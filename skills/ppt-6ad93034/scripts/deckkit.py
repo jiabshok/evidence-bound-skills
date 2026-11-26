@@ -30,7 +30,7 @@ sys.path.insert(0, HERE)
 import kit_sources as ks  # noqa: E402
 from kit_sources import INPUT, WORK, OUT, jload, jsave, say, rel, walk_inputs, read_table, table_path, resolve_src, best_quote, write_result, check, trace_numbers, contract, case_id  # noqa: E402
 
-VERSION = "1.10.0"
+VERSION = "1.14.0"
 PPTX = os.path.join(OUT, "presentation.pptx")
 
 
@@ -1853,7 +1853,7 @@ def cmd_verify(a):
     if att:
         say("OPEN CHECKS (disclosed in exceptions):", att)
     if not bad and ks.elapsed() > 6.5:
-        say("DONE at %.1f min: the delivery is complete and checked. Answer with one short sentence now; do not open, list or edit any file again (the run is cut at minute 15)." % ks.elapsed())
+        say("DONE at %.1f min: the delivery is complete and checked. FINAL STEP: reply with one short sentence and end. Do not view the image, open result.json, edit_record.json or REPORT.md, list files or run any command again: everything is written and verified, and every extra call only adds time (the run is cut at minute 15)." % ks.elapsed())
     nrev, fresh = ks.review_state()
     if ks.elapsed() < 6.5 and (nrev == 0 or (nrev < 2 and (not fresh or ks.elapsed() < 4.5))):
         say("NOT DONE YET: %s (%.1f of 15 min used)." % ("run review once - claims against quotes, requirements, possibly missing terms" if nrev == 0 else "content changed since the last review: run review again and close the remaining gaps", ks.elapsed()))

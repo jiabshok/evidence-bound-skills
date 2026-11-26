@@ -7,6 +7,8 @@ description: Move an existing academic deck or content into a required PPTX temp
 
 Use when content must be put into a given template without losing or changing it. Output in `/app/output`: presentation.pptx, presentation.pdf, previews/, contact_sheet.png, claim_source_map.csv (page-level evidence), change_record.json (preservation audit), speaker_plan.md, rebuild/, result.json.
 
+**Never inspect `/app/output` with your own commands** (cat, sed, ls, python on result.json, edit_record.json, REPORT.md): every engine command prints what it found, `review` prints the claims, `verify` prints the final state. Each extra read costs 30-60 s of a 15-minute run.
+
 ## Adapt: the normal route (starting deck + target template)
 
 Commands are `python3 $S/deckkit.py NAME`; begin each shell call with `S=/skills/weekly-skill/scripts;` (or the scripts directory beside this file).

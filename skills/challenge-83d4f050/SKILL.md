@@ -9,6 +9,8 @@ Use for a biological mechanism or signalling/metabolic pathway figure; not for s
 
 **Do not read the paper up front** (no cat, grep or python on material.json, PDFs or text files). Runs that did used 6-12 of their 15 minutes before the first drawing and lost the edit. `start` and `next` select the passages for every requirement; open one more passage with `show` only when an item names a fact you cannot see.
 
+**Never inspect `/app/output` with your own commands** (cat, sed, ls, python on result.json, edit_record.json, REPORT.md): every engine command prints what it found, `review` prints the claims, `verify` prints the final state. Each extra read costs 30-60 s of a 15-minute run.
+
 ## Rules for this task
 
 - No text panel and no items that repeat the legend, the footnotes or the caption: one diagram uses the whole page; at most 4 footnotes, each once. Grey edges carry their reference in the label ("ref 13"). Phospho-sites the paper names (also as antibody sites) go into the node note with that status.
