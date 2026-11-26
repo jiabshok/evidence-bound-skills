@@ -571,7 +571,7 @@ def cmd_next(a):
         k = a.item - 1
     edit = edit_requests()
     hedge = os.path.join(WORK, ".hedge")
-    if k >= min(3, len(items)) and not os.path.exists(hedge) and elapsed() < 8.5 and have_lines()[1]:
+    if k >= min(3, len(items)) and not os.path.exists(hedge) and elapsed() < 7 and have_lines()[1]:
         open(hedge, "w").close()
         rows = hedged(have_lines()[0])
         if rows:
@@ -580,7 +580,7 @@ def cmd_next(a):
                 say("  %s [%s] %s" % (q["id"], q.get("label") or q["loc"], t))
             return
     built = os.path.exists(os.path.join(WORK, ".builds"))
-    late = elapsed() > (6.5 if built else 8)
+    late = elapsed() > (5.5 if built else 7)
     if late and k < len(items):
         say("%.1f min used: the remaining items are printed together; cover only what is still missing, in one short batch." % elapsed())
         for j in range(k, len(items)):
@@ -886,12 +886,21 @@ def auto_match(text, k=1, floor=.5):
             continue
         quote = best_quote(text, q["text"])
         qn = set(numbers(quote))
-        if nums and not nums & qn:
+        if nums and not nums <= qn:  # the quote shown must carry every number of the claim
+            parts = [quote]
+            for z in re.split(r"(?<=[.!?;])\s+", q["text"]):
+                if len(parts) >= 3 or nums <= qn:
+                    break
+                if set(numbers(z)) & (nums - qn) and z not in parts:
+                    parts.append(z.strip()[:240])
+                    qn |= set(numbers(z))
+            quote = " ... ".join(parts)
+        if nums and not nums <= set(numbers(quote)):
             continue
         out.append((score, q, quote, nh))
     out.sort(key=lambda t: -t[0])
     return [{"id": q["id"], "file": q["file"], "locator": q["loc"], "label": q.get("label", ""), "quote": quote,
-             "match": "same numbers %d of %d, term overlap score %.2f; matched by the engine" % (nh, len(nums), sc)} for sc, q, quote, nh in out[:k]]
+             "match": "candidate support: same numbers %d of %d (all in the quote), term overlap score %.2f; matched by the engine, not checked clause by clause" % (nh, len(nums), sc)} for sc, q, quote, nh in out[:k]]
 
 
 def numbers_absent(text):
@@ -1103,7 +1112,7 @@ def print_must(blob, cap=5200, visible=None):
     cf = os.path.join(WORK, ".reviews")
     n = (int(open(cf).read()) if os.path.exists(cf) else 0) + 1
     open(cf, "w").write(str(n))
-    if elapsed() > 6.5:
+    if elapsed() > 5.5:
         say("\nreview %d at %.1f min: little time left. One batch only: correct errors of fact (wrong sign, direction, number, citation), do the requested edit if still missing, verify, stop." % (n, elapsed()))
     else:
         say("\nreview %d at %.1f min (hard limit 15, aim to finish by 10). Fix real gaps now, 4-6 at a time, each batch one short command; do not think all of them through at once. Accuracy and completeness weigh more than speed." % (n, elapsed()))
@@ -1218,6 +1227,138 @@ def better_citation(a, b, words, skip=()):
                 if sc > best[0]:
                     best = (sc, q["id"], z)
     return best[1], best[2]
+
+
+PROPOSAL_ = re.compile(r"(?i)\b(propos\w*|hypothes\w*|postulat\w*|speculat\w*|putative|presumabl\w*|may|might|could(?! not)|possibl\w*|we (?:suggest|think|believe|envisage)|(?:our|a|the) (?:working |proposed )?model (?:in which|where|whereby|that|of))\b")
+CORREL_ = re.compile(r"(?i)\b(correlat\w*|associated with|association (?:between|with)|coincid\w* with)\b")
+PRIOR_ = re.compile(r"(?i)(\[\d+(?:\s*[,\u2013-]\s*\d+)*\]|\bet al\b|\bpreviously (?:been )?(?:shown|reported|described|demonstrated)|\b(?:has|have) (?:previously )?been (?:shown|reported|described|demonstrated)|\bis known to\b|\bare known to\b)")
+OWN_ = re.compile(r"(?i)\b(we (?:show|showed|found|find|demonstrat\w*|observed|detected|confirmed)|here,? we|in this study|our (?:data|results) (?:show|demonstrate))\b")
+
+
+CLAUSE_ = re.compile(r",\s+(?=(?:in contrast|correlating|consistent|suggesting|indicating|which|whereas|while|although|but|and (?:this|these|that|thus))\b)|;\s+|\s+(?=(?:but|whereas)\b)")
+
+
+MECH_TYPES_ = ("activation", "inhibition", "binding", "phosphorylation", "modification", "dimerisation", "cleavage", "degradation", "transport", "expression", "conversion", "causal", "signal")
+
+
+def _hit(z, n):
+    return mentions(z, n) or (len(re.sub(r"[\d/]+$", "", n)) >= 3 and mentions(z, re.sub(r"[\d/]+$", "", n)))
+
+
+def strength_pass(spec):
+    """Evidence class from the source wording. A relation drawn as stated whose every cited sentence naming both ends
+    only proposes it, only correlates the two, or only reports earlier work is drawn as proposed / association / cited.
+    One plain sentence keeps it as stated. Returns the list of changes (also kept in spec['_strength'])."""
+    out = []
+    for p in spec.get("panels") or []:
+        if not isinstance(p, dict):
+            continue
+        lab = {str(n.get("id")): str(n.get("label") or n.get("id")) for n in p.get("nodes") or [] if isinstance(n, dict)}
+        for e in p.get("edges") or []:
+            if not isinstance(e, dict) or e.get("evidence_class_locked") or str(e.get("type") or "activation") not in MECH_TYPES_:
+                continue
+            cert = str(e.get("certainty") or "").strip().lower()
+            if cert not in ("", "stated", "observed", "shown", "measured", "this study"):
+                continue
+            a_, b_ = core_name(lab.get(str(e.get("from")), e.get("from"))), core_name(lab.get(str(e.get("to")), e.get("to")))
+            if len(a_) < 2 or len(b_) < 2 or a_ == b_:
+                continue
+            try:
+                src = resolve_src(e.get("src"), [], "strength")
+            except Exception:
+                continue
+            sents = []
+            for s_ in src:
+                for z in re.split(r"(?<=[.!?;])\s+", str(s_.get("text") or s_.get("quote") or "")):
+                    if len(z) < 600 and _hit(z, a_) and _hit(z, b_):
+                        parts = [c for c in CLAUSE_.split(z) if c and _hit(c, a_) and _hit(c, b_)]
+                        for c in (parts or [z]):
+                            sents.append((s_.get("id"), c.strip()))
+            if not sents:
+                continue
+            if any(not PROPOSAL_.search(z) and not CORREL_.search(z) and not (PRIOR_.search(z) and not OWN_.search(z)) for _, z in sents):
+                continue
+            pid_, z = sents[0]
+            if all(PROPOSAL_.search(q) for _, q in sents):
+                new, why = "proposed", "proposes it"
+            elif all(CORREL_.search(q) or PROPOSAL_.search(q) for _, q in sents):
+                new, why = "association", "only correlates the two"
+            else:
+                new, why = "cited", "reports it from earlier work"
+            old = {"type": e.get("type"), "certainty": e.get("certainty")}
+            if new == "association":   # the sign the authors give stays; the line shows it is not established
+                e["certainty"] = "proposed"
+                if "correlat" not in str(e.get("label") or "").lower():
+                    e["label"] = (str(e.get("label") or "") + " (correlation)").strip()
+            else:
+                e["certainty"] = new
+            e["evidence_class_locked"] = True
+            rec = {"from": e.get("from"), "to": e.get("to"), "panel": p.get("id"), "was": old, "now": {"type": e.get("type"), "certainty": e.get("certainty")},
+                   "reason": "every cited sentence naming both ends %s" % why, "source": pid_, "quote": z[:300]}
+            spec.setdefault("_strength", []).append(rec)
+            out.append("EVIDENCE CLASS %s -> %s drawn %s: the cited sentence %s (%s: %s). If another sentence shows it directly, cite that one instead." % (
+                lab.get(str(e.get("from")), e.get("from")), lab.get(str(e.get("to")), e.get("to")), {"association": "dashed with its sign, labelled (correlation)", "proposed": "dashed as proposed", "cited": "grey as cited literature"}[new], why, pid_, z[:160]))
+    return out
+
+
+GENE_ = re.compile(r"\b(?:p-?)?([A-Z][A-Za-z]{0,6}[0-9][A-Za-z0-9/-]{0,6}|[A-Z]{2,}[A-Za-z0-9/-]{0,6})\b")
+NOT_GENE_ = {"DNA", "RNA", "MRNA", "SIRNA", "PCR", "QPCR", "ELISA", "FRET", "FLIM", "PBS", "DMSO", "TKI", "HRP", "SD", "SE", "SEM", "CI", "WT", "KO", "MAB", "FIG", "FIGS", "UK", "USA", "ER", "PR", "OD", "UV", "TAPI"}
+
+
+def chain_gaps(spec, limit=4):
+    """Entities a cited sentence names between the two ends of a drawn relation that are not drawn themselves."""
+    out = []
+    for p in spec.get("panels") or []:
+        if not isinstance(p, dict) or not p.get("edges"):
+            continue
+        labs = " ".join(str(n.get("label") or "") + " " + str(n.get("id") or "") + " " + str(n.get("note") or "") for n in p.get("nodes") or [] if isinstance(n, dict))
+        drawn = set()
+        for w in re.findall(r"[A-Za-z0-9/-]{2,}", labs):
+            for v in (w, re.sub(r"^p(?=[A-Z0-9])", "", w), re.sub(r"[\d/]+$", "", w), re.sub(r"[\d/]+$", "", re.sub(r"^p(?=[A-Z0-9])", "", w))):
+                v = re.sub(r"[^a-z0-9]", "", v.lower())
+                if len(v) >= 2:
+                    drawn.add(v)
+        lab = {str(n.get("id")): str(n.get("label") or n.get("id")) for n in p.get("nodes") or [] if isinstance(n, dict)}
+        for e in p["edges"]:
+            if not isinstance(e, dict) or str(e.get("type") or "activation") not in MECH_TYPES_:
+                continue
+            a_, b_ = core_name(lab.get(str(e.get("from")), e.get("from"))), core_name(lab.get(str(e.get("to")), e.get("to")))
+            if len(a_) < 2 or len(b_) < 2:
+                continue
+            try:
+                src = resolve_src(e.get("src"), [], "chain")
+            except Exception:
+                continue
+            for s_ in src:
+                for z in re.split(r"(?<=[.!?;])\s+", str(s_.get("text") or "")):
+                    zl = re.sub(r"[\s\-\u2010-\u2015]+", "", z.lower())
+                    ia, ib = zl.find(re.sub(r"[\s\-]+", "", a_)), zl.find(re.sub(r"[\s\-]+", "", b_))
+                    if ia < 0 or ib < 0 or abs(ia - ib) < 4:
+                        continue
+                    lo, hi = sorted((ia, ib))
+                    mid = []
+                    for m in re.finditer(r"\b(?:via|through|by)\s+(?:the\s+)?([A-Z][a-z]{1,5}\d?)\s+(?:inhibition|activation|phosphorylation|signalling|signaling|kinase|binding)\b", z):
+                        t = m.group(1)
+                        k = t.lower()
+                        if lo < zl.find(k) < hi and k not in drawn:
+                            mid.append(t)
+                    for m in GENE_.finditer(z):
+                        t = m.group(1)
+                        k = re.sub(r"[^a-z0-9]", "", t.lower())
+                        if re.sub(r"[\d/]+$", "", t).lower().replace("-", "") in drawn:
+                            continue
+                        pos = zl.find(k)
+                        if re.match(r"(?i)^(?:[\s,]+(?:and|or)?\s*[A-Za-z0-9-]{2,12}){0,3}\s+(?:cells?|cell lines?|xenografts?|tumou?rs?|mice)\b", z[m.end():]):
+                            continue
+                        if lo < pos < hi and t.upper() not in NOT_GENE_ and k not in drawn and k.rstrip("s") not in drawn and not re.fullmatch(r"[A-Z]?\d+[A-Za-z]?", t):
+                            mid.append(t)
+                    if mid:
+                        out.append("CHAIN GAP %s -> %s: %s names %s between them (\"%s\"). If it is a step of this relation, draw it (cited steps grey, with the reference)." % (
+                            lab.get(str(e.get("from")), e.get("from")), lab.get(str(e.get("to")), e.get("to")), s_.get("id"), ", ".join(dict.fromkeys(mid)), z.strip()[:200]))
+                        break
+                if len(out) >= limit:
+                    return out
+    return out
 
 
 def best_quote(label, rec_text, must=()):

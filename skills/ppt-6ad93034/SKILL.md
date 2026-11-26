@@ -135,4 +135,4 @@ p.save('/app/work/base.pptx')
 
 `result.json` is written by the engine with the contract fields; do not rewrite it. Extra root fields in a case contract: load, set and save the file after the last run.
 
-For maintainers: `references/guide.md` (method, limits, reproducible edit example) and `examples/synthetic` (`python3 $S/deckkit.py selftest`).
+For maintainers: `references/guide.md` (method, limits, reproducible edit example) and `examples/synthetic` (`python3 $S/deckkit.py selftest`). Same-input comparison with and without this Skill on local practice cases: `references/evidence.md` (not needed during a run).

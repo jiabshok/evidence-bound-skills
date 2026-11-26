@@ -115,4 +115,4 @@ Ops run in the listed order. Slide numbers always mean the ORIGINAL numbering, w
 
 Do not rewrite `result.json` by hand. If a case contract has extra root fields, add them the same way (load, set, save) after the last build.
 
-For people, not needed during a run: `references/guide.md` and `examples/synthetic` (invented input and spec; `selftest` builds its output).
+For people, not needed during a run: `references/guide.md` and `examples/synthetic` (invented input and spec; `selftest` builds its output). Same-input comparison with and without this Skill on local practice cases: `references/evidence.md` (not needed during a run).

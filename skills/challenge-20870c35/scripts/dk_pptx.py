@@ -274,6 +274,10 @@ def tidy_markup(t):
     """10^9, L^-1 and 'mg L-1' get proper superscripts."""
     t = re.sub(r"[_^]\{?([\u00b5\u03bc])\}?(?=[A-Za-z])", r"\1", str(t))
     t = re.sub(r"\^([-−+]?\d+)(?![}\d])", r"^{\1}", str(t))
+    t = re.sub(r"(?:(?<=\d)|(?<=\d )|(?<=\())u(?=(?:g|L|l|M|mol|m|V|A|W)(?![A-Za-z]))", "\u00b5", t)   # 5 ug -> 5 µg
+    t = re.sub(r"(?<![A-Za-z])uV(?=2\b|\^)", "\u00b5V", t)
+    t = re.sub(r"(?<=\u00b5V)2(?=\s*/|\b)", "^{2}", t)
+    t = re.sub(r"(?<=\d)\s?(?:deg\.?\s?C|degC|oC)\b", " \u00b0C", t)
     return UNIT_EXP.sub(lambda m: "%s^{\u2212%s}" % (m.group(1), m.group(3)), t)
 
 

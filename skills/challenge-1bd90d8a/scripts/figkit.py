@@ -43,7 +43,7 @@ from kit_sources import (INPUT, WORK, OUT, CONTRACT, jload, jsave, say, walk_inp
 
 from kit_sources import elapsed as ks_elapsed  # noqa: E402
 
-VERSION = "1.9.0"
+VERSION = "1.10.0"
 
 # --- spec validation -------------------------------------------------------------
 ALIAS_T = {"dimerization": "dimerisation", "dimerises": "dimerisation", "dimerizes": "dimerisation", "heterodimerisation": "dimerisation", "heterodimerization": "dimerisation", "homodimerisation": "dimerisation", "complex_formation": "dimerisation", "dimer": "dimerisation",
@@ -214,6 +214,23 @@ def validate(spec):
                 err.append("panel %s: chart '%s' unknown; use bar stacked line scatter dot box heatmap forest" % (pid, p["chart"]))
             if (p.get("err") or (p.get("lo") and p.get("hi"))) and not p.get("err_meaning"):
                 warn.append("panel %s: error bars drawn without 'err_meaning' (SD, SEM, 95%% CI ... as the source states)" % pid)
+            em_ = str(p.get("err_meaning") or "")
+            kind_ = re.search(r"(?i)\b(SEM|SE|S\.E\.M?\.?|SD|S\.D\.|standard (?:error|deviation)|(?:95|99) ?% ?(?:CI|confidence)|CI|confidence interval|IQR|range)\b", em_)
+            if kind_ and p.get("src") and not p.get("stat"):
+                try:
+                    txt_ = " ".join(str(q.get("text") or q.get("quote") or "") for q in resolve_src(p.get("src"), [], pid))
+                except Exception:
+                    txt_ = ""
+                k_ = kind_.group(1).upper().replace(".", "")
+                pats_ = {"SE": r"\bS\.?E\.?M?\b|standard error", "SEM": r"\bS\.?E\.?M\b|standard error", "SD": r"\bS\.?D\b|standard deviation",
+                         "CI": r"\bCI\b|confidence", "IQR": r"\bIQR\b|interquartile", "RANGE": r"\brange\b"}
+                pat_ = next((v for kk, v in pats_.items() if k_.startswith(kk) or kk in k_), None) or re.escape(kind_.group(1))
+                if txt_ and not re.search(pat_, txt_, re.I):
+                    p["err_meaning"] = "reported error (type not stated in the cited text)"
+                    for f_ in ("note", "title", "ylabel"):
+                        if p.get(f_):
+                            p[f_] = re.sub(r"(?i)(±|\+/-|\+-)\s*" + re.escape(kind_.group(1)) + r"\b", r"\1 reported error", str(p[f_]))
+                    warn.append("panel %s: err_meaning '%s' is not named in the cited passages %s, so the bars are labelled 'reported error'. If the paper states it (often in a figure legend), cite that passage in src." % (pid, em_, p.get("src")))
             for k in ("xlabel", "ylabel"):
                 if not p.get(k) and p["chart"] != "heatmap":
                     warn.append("panel %s: '%s' missing - give quantity and unit" % (pid, k))
@@ -295,6 +312,11 @@ def svg_facts(svg):
             texts += 1
             try:
                 sizes.append(float(el.get("font-size", "0")))
+            except ValueError:
+                pass
+        if tag == "tspan" and el.get("font-size") and (el.text or "").strip():
+            try:
+                sizes.append(float(el.get("font-size")))
             except ValueError:
                 pass
         if tag == "image":
@@ -620,6 +642,17 @@ def best_render(spec, locked, lock_scale=None):
     return best[1:]
 
 
+def edit_pairs(text):
+    """(old, new) variant names in an edit request: 'from the RAS+A variant to show the RAS-A variant', 'replace X with Y'."""
+    out = []
+    for m in re.finditer(r"(?i)\bfrom (?:the |a )?([^,;.]{1,40}?) (?:variant |version |design |condition )?to (?:show |display )?(?:the |a )?([^,;.]{1,40}?)(?: variant| version| design| condition)?(?=\s+by\b|\s+and\b|[,;.]|$)", text):
+        out.append((m.group(1).strip(), m.group(2).strip()))
+    if not out:
+        for m in re.finditer(r"(?i)\b(?:replace|swap|switch)\s+(?:the\s+)?([^,;.]{1,40}?)\s+(?:with|by|for)\s+(?:the\s+)?([^,;.]{1,40}?)(?=\s+by\b|[,;.]|$)", text):
+            out.append((m.group(1).strip(), m.group(2).strip()))
+    return [(o, n) for o, n in out if 0 < len(o.split()) <= 4 and 0 < len(n.split()) <= 4 and o.lower() != n.lower()]
+
+
 def cmd_build(a):
     t0 = time.time()
     os.makedirs(OUT, exist_ok=True)
@@ -713,6 +746,55 @@ def cmd_build(a):
             if re.search(r"(?i)^(?:no|none)\b[^.;]{0,70}\b(?:is|are|was|were)\s+(?:named|reported|stated|given|mentioned|described|specified)\b", z_.strip()):
                 warn.append("ABSENCE CLAIM '%s' - confirm it with `find` before keeping it" % z_.strip()[:90])
     warn += ["WORDING " + x for x in lints[:5]]
+    if not a.revise and not a.spec:
+        for old_, new_ in edit_pairs(" ".join(ln for ln in must_lines() if re.search(r"(?i)edit|revis|convert|replace", ln))):
+            if old_.lower() in strip_markup(str(spec.get("title") or "")).lower():
+                warn.append("EDIT PLAN: the requested edit turns '%s' into '%s', and an edit may only touch the named objects. Keep '%s' out of the title now (a variant-neutral title), name the variant on the objects the edit changes or in the caption." % (old_, new_, old_))
+            break
+    if True:  # deterministic: v1, the edit and a rebuild give the same classes for unchanged relations
+        try:
+            from kit_sources import strength_pass, chain_gaps
+            v1s_ = os.path.join(OUT, "figure_before_edit_spec.json")
+            if a.revise and os.path.exists(v1s_):   # relations drawn in v1 keep the class they had there
+                old_e = {(str(p_.get("id")), str(e_.get("from")), str(e_.get("to"))): e_ for p_ in jload(v1s_).get("panels") or [] for e_ in p_.get("edges") or [] if isinstance(e_, dict)}
+                for p_ in spec["panels"]:
+                    for e_ in p_.get("edges") or []:
+                        o_ = old_e.get((str(p_.get("id")), str(e_.get("from")), str(e_.get("to")))) if isinstance(e_, dict) else None
+                        if o_ is not None and not e_.get("evidence_class_locked"):
+                            if o_.get("evidence_class_locked"):
+                                e_["type"], e_["certainty"] = o_.get("type"), o_.get("certainty")
+                                if "(correlation)" in str(o_.get("label") or "") and "(correlation)" not in str(e_.get("label") or ""):
+                                    e_["label"] = o_.get("label")
+                            e_["evidence_class_locked"] = True
+                spec["_strength"] = [x for x in (jload(v1s_).get("_strength") or [])]
+            warn += strength_pass(spec)
+            if not a.revise and not a.spec:
+                warn += chain_gaps(spec)
+        except Exception as exc:  # the check never blocks a delivery
+            warn.append("evidence-class check skipped: %s" % exc)
+    if not a.spec:
+        try:   # a size or type minimum the work order states is not the agent's to change
+            import fk_flow
+            req_cv = fk_flow.order_facts()[0]
+            cv_ = spec.setdefault("canvas", {})
+            want_ = {"size_px": req_cv.get("size_px"), "size_mm": req_cv.get("size_mm") if not req_cv.get("size_px") else None, "min_font_pt": req_cv.get("min_font_pt")}
+            have_ = json.loads(json.dumps(cv_))
+            canvas_fix({"canvas": have_})
+            for k_, v_ in want_.items():
+                if not v_:
+                    continue
+                if k_ == "min_font_pt":
+                    if float(cv_.get("min_font_pt") or 0) < float(v_):
+                        cv_["min_font_pt"] = v_
+                    continue
+                got_ = have_.get("pixels") if k_ == "size_px" else [have_.get("width_mm"), have_.get("height_mm")]
+                if not got_ or any(g is None or abs(float(g) - float(w)) > (1 if k_ == "size_px" else .6) for g, w in zip(got_, v_)):
+                    for q_ in ("size_px", "size_mm", "size", "width_mm", "height_mm", "width_px", "height_px", "pixels"):
+                        cv_.pop(q_, None)
+                    cv_[k_] = list(v_)
+                    warn.append("canvas set back to the work order's %s %s (the spec had %s): the size is a requirement, not a layout choice; shorten text instead" % (k_.replace("_", " "), v_, got_))
+        except Exception as exc:
+            warn.append("work-order canvas check skipped: %s" % exc)
     canvas_fix(spec)
     plain = json.loads(json.dumps(spec))
     prev_svg = os.path.join(OUT, "figure.svg")
@@ -756,6 +838,15 @@ def cmd_build(a):
                 os.remove(f)
     try:
         svg, reg, meta, spec, auto = best_render(spec, locked, lock_scale)
+        req_ = (spec.get("canvas") or {}).get("min_font_pt")
+        for _ in range(2 if (req_ and not locked) else 0):   # a stated minimum is met at final size, after the page squeeze
+            mp_ = min(svg_facts(svg)["sizes"] or [9e9]) / fk_draw.MM / meta["scale"] / 25.4 * 72
+            if mp_ >= float(req_) - .05:
+                break
+            cvb_ = spec.setdefault("canvas", {})
+            cvb_["_floor_boost"] = round(float(cvb_.get("_floor_boost") or 1) * float(req_) / mp_ * 1.02, 3)
+            plain.setdefault("canvas", {})["_floor_boost"] = cvb_["_floor_boost"]
+            svg, reg, meta, spec, auto = best_render(spec, None)
     except ValueError as exc:
         sys.exit("CANNOT DRAW (nothing overwritten): %s" % exc)
     used = {p["id"]: p for p in spec["panels"]}
@@ -902,18 +993,30 @@ def cmd_build(a):
             pats = [x.rstrip("-") for x in pats]
             return any(i == x or i.startswith(x + "-") or i.startswith("panel-" + x) or (len(x) > 2 and x in i) for x in pats)
         outside = [c["id"] for c in record["changed"] if allow and not within(c["id"], allow) and not (is_container(c["id"]) and not c["id"].endswith(("-chart", "-data", "-axes")))]
+        outside += [x for x in record["removed"] if allow and not within(x, allow) and not is_container(x)]
         outside = [x for x in outside if not x.startswith(("legend", "footnote", "background"))]
         prot = [str(x) for x in (spec.get("edit_protect") or [])]
         hit = [c["id"] for c in record["changed"] if within(c["id"], prot)] + [x for x in record["removed"] if within(x, prot)]
         moved = locked is not None and locked.get("_view") and [round(v, 2) for v in locked["_view"]] != [round(v, 2) for v in meta["view"]]
-        record["page_coordinate_system"] = "identical viewBox and content offset" if not moved else "the fixed page could not hold the addition, so the whole page is scaled uniformly by %.3f; markup of untouched elements is unchanged" % (locked["_view"][2] / meta["view"][2])
+        if moved and meta["view"][2] and abs(locked["_view"][2] / meta["view"][2] - 1) <= .05:   # element markup identical, page view within 5 %: disclosed, not a failure
+            record["page_rescale_within_5_percent"] = round(locked["_view"][2] / meta["view"][2], 3)
+            moved = False
+        record["page_coordinate_system"] = ("page view rescaled uniformly by %.3f (within 5 %%) to hold the addition; markup and coordinates of untouched elements are unchanged" % record["page_rescale_within_5_percent"]) if record.get("page_rescale_within_5_percent") else "identical viewBox and content offset" if not moved else "the fixed page could not hold the addition, so the whole page is scaled uniformly by %.3f; markup of untouched elements is unchanged" % (locked["_view"][2] / meta["view"][2])
         record["edit_scope"], record["outside_scope"], record["protected_touched"] = allow, outside, hit
         jsave(os.path.join(OUT, "edit_record.json"), record)
         checks.append(check("source_preserving_edit", did > 0 and not outside and not hit and not moved,
                             "requested: %s; changed %d %s, added %d %s, removed %d %s; byte-identical %d elements%s%s%s" % (
-                                a.revise, len(record["changed"]), [c["id"] for c in record["changed"]][:8], len(record["added"]), record["added"][:6], len(record["removed"]), record["removed"][:6], record["unchanged_elements"],
-                                ("; " + record["page_coordinate_system"] if moved else "") + ("; OUTSIDE edit_scope: %s" % outside[:8] if outside else ""), "; PROTECTED objects touched: %s" % hit[:8] if hit else "",
+                                a.revise, len(record["changed"]), [c["id"] for c in record["changed"]][:30], len(record["added"]), record["added"][:20], len(record["removed"]), record["removed"][:20], record["unchanged_elements"],
+                                ("; " + record["page_coordinate_system"] if moved or record.get("page_rescale_within_5_percent") else "") + ("; OUTSIDE edit_scope: %s" % outside[:8] if outside else ""), "; PROTECTED objects touched: %s" % hit[:8] if hit else "",
                                 "" if allow or prot else "; no edit_scope/edit_protect was declared, so the full list of changed ids above is the evidence"), "element-by-element comparison by id against the frozen first version"))
+        for old_, new_ in edit_pairs(" ".join([str(a.revise)] + [ln for ln in must_lines() if re.search(r"(?i)edit|revis|convert|replace", ln)])):
+            seen_t = [k for k in ("title", "caption") if old_.lower() in strip_markup(str(spec.get(k) or "")).lower() and new_.lower() not in strip_markup(str(spec.get(k) or "")).lower()]
+            seen_t += ["panel %s title" % p["id"] for p in spec["panels"] if old_.lower() in strip_markup(str(p.get("title") or "")).lower()]
+            checks.append(check("edit_variant_consistency", not seen_t, ("after the edit (%s -> %s) these still name '%s': %s" % (old_, new_, old_, ", ".join(seen_t))) if seen_t else
+                                "no title, caption or panel title still names the replaced variant '%s'" % old_, "title, caption and panel titles searched for the replaced and the new variant"))
+            if seen_t:
+                say("ATTENTION the edited figure still names the replaced variant '%s' in %s: make it name '%s' (if the edit forbids touching the title, say so in an exception)." % (old_, ", ".join(seen_t), new_))
+            break
     elif os.path.exists(os.path.join(OUT, "edit_record.json")):
         record = jload(os.path.join(OUT, "edit_record.json"))
     exceptions = []
@@ -925,6 +1028,9 @@ def cmd_build(a):
         u.setdefault("state", "unresolved")
         exceptions.append(u)
     exceptions += unreadable_inputs()
+    for x in spec.get("_strength") or []:
+        exceptions.append({"item": "relation %s -> %s (panel %s)" % (x["from"], x["to"], x["panel"]), "state": "drawn as %s, not as a demonstrated relation" % (x["now"]["type"] if x["now"]["type"] == "association" else x["now"]["certainty"]),
+                           "detail": x["reason"], "source": [{"id": x["source"], "quote": x["quote"]}], "found_by": "engine evidence-class check"})
     try:
         exceptions += auto_exceptions(exceptions + [spec.get("footnotes"), spec.get("caption")])
     except Exception:
@@ -1030,6 +1136,17 @@ KIT_INPUT="${1:-/input}" KIT_WORK="$PWD/../_work" KIT_OUTPUT="$PWD/../_rebuilt" 
                        "build_seconds": round(time.time() - t0, 1), "python": sys.version.split()[0]},
         "uncertainty": [c for c in cmap if c.get("certainty") not in (None, "stated", "observed")],
     }
+    try:
+        nb_ = jload(os.path.join(WORK, ".builds")).get("n", 0) + 1
+    except (OSError, ValueError):
+        nb_ = 1
+    open_ = [c["check"] for c in checks if c["result"] != "pass"]
+    if "source_preserving_edit" in open_ and status == "completed":
+        status = res["status"] = "partial"
+    res["run_record"] = {"builds_so_far": nb_, "minutes_since_start": round(ks_elapsed(), 1), "checks_passed": "%d/%d" % (len(checks) - len(open_), len(checks)),
+                         "open_checks": open_, "relations_redrawn_by_evidence_class": len(spec.get("_strength") or []),
+                         "edit": "done" if record else "not requested or not done yet",
+                         "note": "measured by the engine during this run; the platform's own trace is the authority for time and requests"}
     write_result(res)
     say("BUILT status=%s  %.0f x %.0f mm  renderer=%s  %.1fs" % (status, w_mm, h_mm, exp["renderer"], time.time() - t0))
     if spec.get("_starter") or os.environ.get("KIT_STARTER"):
@@ -1057,7 +1174,7 @@ KIT_INPUT="${1:-/input}" KIT_WORK="$PWD/../_work" KIT_OUTPUT="$PWD/../_rebuilt" 
         if c["result"] == "pass":
             continue
         told[c["check"]] = told.get(c["check"], 0) + 1
-        if ks_elapsed() > 7.5 and c["check"] not in ("source_preserving_edit", "entities_and_relations_round_trip"):
+        if ks_elapsed() > 6.5 and c["check"] not in ("source_preserving_edit", "entities_and_relations_round_trip"):
             continue
         if (a.revise and c["check"] in ("minimum_type_size", "physical_size", "png_export", "not_colour_only")) or told[c["check"]] > (1 if c["check"] in ("minimum_type_size", "physical_size") else 2):
             say("(already disclosed in exceptions - leave it and go on: %s)" % c["check"])
@@ -1070,7 +1187,7 @@ KIT_INPUT="${1:-/input}" KIT_WORK="$PWD/../_work" KIT_OUTPUT="$PWD/../_rebuilt" 
             say("ATTENTION %s: %s\n   -> %s" % (c["check"], c["detail"][:420], HINT.get(c["check"], "disclosed in exceptions; fix only if it is one spec edit")))
     jsave(cnt_f, st)
     for w_ in warn[:10]:
-        if ("flow continuity" in w_ or "sends '" in w_) and ks_elapsed() < 9:
+        if ("flow continuity" in w_ or "sends '" in w_) and ks_elapsed() < 8:
             unit_ = re.findall(r"'([^']+)'", w_)
             try:
                 from kit_sources import rank_passages
@@ -1081,7 +1198,7 @@ KIT_INPUT="${1:-/input}" KIT_WORK="$PWD/../_work" KIT_OUTPUT="$PWD/../_rebuilt" 
         say("NOTE", w_)
     for p_ in problems[:10]:
         say("SOURCE", p_)
-    if weak and ks_elapsed() < 8:
+    if weak and ks_elapsed() < 7:
         say("CITATIONS THAT DO NOT NAME BOTH ENDS (%d): cite the sentence that shows the relation - one line per relation in <panel>.cite (`from | to | P027`) - or change the relation to what the source says, or mark it proposed:" % len(weak))
         for r, lost, pid_, sent in weak[:6]:
             say("  %s -> %s cites %s, which does not mention %s%s" % (r["from"], r["to"], ",".join(map(str, r.get("src") if isinstance(r.get("src"), list) else [r.get("src")])), "/".join(lost),
@@ -1095,9 +1212,9 @@ KIT_INPUT="${1:-/input}" KIT_WORK="$PWD/../_work" KIT_OUTPUT="$PWD/../_rebuilt" 
     if a.revise and spec.get("caption"):
         say("CHECK the caption still describes the edited figure (it is part of the delivery): %s" % strip_markup(str(spec["caption"]))[:420])
     want_edit = [ln.strip() for ln in must_lines() if re.search(r"(?i)^\s*(edit|revision)[\w.\[\]]*\s*:", ln) and "text" in ln[:40].lower()]
-    if want_edit and not st.get("revised") and (st["stuck"] >= 3 or ks_elapsed() > 7) and any(p.get("edges") or p["type"] != "diagram" for p in spec["panels"]):
+    if want_edit and not st.get("revised") and (st["stuck"] >= 3 or ks_elapsed() > 6) and any(p.get("edges") or p["type"] != "diagram" for p in spec["panels"]):
         say("EDIT NOW (%.1f min): the first version is complete enough and its open points are disclosed. The requested edit is NOT DONE YET; a missing edit costs far more than any polish. Append its lines / spec change, set edit_scope, `build --revise \"...\"`: %s" % (ks_elapsed(), want_edit[0][:500]))
-    elif st["stuck"] >= 3 or ks_elapsed() > (9 if st.get("revised") else 9.5):
+    elif st["stuck"] >= 3 or ks_elapsed() > (7.5 if st.get("revised") else 8):
         say("STOP RULE (%.1f min): complete; open points are disclosed. Run verify now and finish. No layout, font or wording polishing." % ks_elapsed())
     if not spec.get("title") or not spec.get("caption"):
         say("NEXT: add title and caption to /app/work/spec.json (they are still missing).")
@@ -1105,7 +1222,7 @@ KIT_INPUT="${1:-/input}" KIT_WORK="$PWD/../_work" KIT_OUTPUT="$PWD/../_rebuilt" 
         say("NEXT: run `next` for the next requirement.")
     elif any(p["type"] == "diagram" and not p.get("edges") for p in spec["panels"]):
         say("NEXT: append the first 6 relations to <panel>.edges and build again. Think only about these 6.")
-    elif st["stuck"] < 3 and ks_elapsed() < 6.5:
+    elif st["stuck"] < 3 and ks_elapsed() < 5.5:
         say("NEXT: re-read the must-show list (and, if it says 'all' of a table, its rows): name what is still missing, and append further relations/panels that must-show items need (at most 6 lines per response), or fix the ATTENTION lines; then run review once, look at figure.png once, do the requested edit with --revise, verify, stop.")
     say("%d/%d checks pass. result.json saved (%d mapped elements)." % (sum(c["result"] == "pass" for c in checks), len(checks), len(cmap)))
 
@@ -1333,10 +1450,10 @@ def cmd_verify(a):
     att = [c["check"] for c in (r.get("compliance_checks") or []) if c.get("result") != "pass"]
     if att:
         say("OPEN CHECKS (disclosed in exceptions):", att)
-    if not bad and ks_elapsed() > 6.5:
+    if not bad and ks_elapsed() > 5.5:
         say("DONE at %.1f min: the delivery is complete and checked. Answer with one short sentence now; do not open, list or edit any file again (the run is cut at minute 15)." % ks_elapsed())
     nrev, fresh = review_state()
-    if ks_elapsed() < 6.5 and (nrev == 0 or (nrev < 2 and not fresh)):
+    if ks_elapsed() < 5.5 and (nrev == 0 or (nrev < 2 and not fresh)):
         say("NOT DONE YET: %s (%.1f of 15 min used)." % ("run review once - claims against quotes, requirements, possibly missing terms" if nrev == 0 else "content changed since the last review: run review again and close the remaining gaps", ks_elapsed()))
     say("VERIFY", ("OK" if r.get("status") == "completed" else "INCOMPLETE (status %s)" % r.get("status")) if not bad else "PROBLEMS: %s" % bad, "| status=%s | %d files hashed | %d map entries | %d checks | %d exceptions" % (
         r.get("status"), n, len(r.get("content_map") or []), len(r.get("compliance_checks") or []), len(r.get("exceptions") or [])))

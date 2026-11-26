@@ -28,6 +28,7 @@ Requirements: Python 3.9+. Figures: Pillow optional; one of Playwright Chromium,
 ## Method in short
 
 - `start` drafts the specification from the work order and hands the agent one requirement at a time (`next`) with the passages that answer it, so a small model never has to plan a whole figure in one response.
+- Evidence strength controls the drawing: a relation whose every cited sentence only proposes it, correlates the two ends or reports earlier work is drawn dashed (sign kept) or grey and listed in `exceptions`.
 - `fromtable` turns result-table rows into relations with value, sign, p and row-level source; `prune` removes a subset for an edit and lists it in an inset.
 - `audit` finds malformed numbers, one value with two units, percentages that do not fit their counts, table/text p-values that differ; sure findings go to `exceptions` unrepaired.
 - `review` prints every claim beside the sentence it cites, the requirement list, terms missing from the visible text, and values in the best passages of each requirement that the delivery lacks.
@@ -45,6 +46,8 @@ Requirements: Python 3.9+. Figures: Pillow optional; one of Playwright Chromium,
 | Template inheritance | canonical-XML hashes of master, layouts and theme before and after |
 | Adaptation loss | both PPTX files are re-read independently: text, table cells, chart data, image hashes, notes, hyperlinks, hidden flags, groups |
 | Untouched slides | deep hash of slide XML, notes, chart parts, workbooks and media |
+
+Each Skill has `references/evidence.md`: same-input local runs with and without the Skill (practice cases, local judge, run time and requests), including the cases where the Skill did not raise the judged score.
 
 Limits: schematics of about 6-25 nodes; no photorealistic drawing; no animation or SmartArt reconstruction; scatter charts in migrated decks need manual review; checks establish traceability and file integrity, not scientific truth.
 

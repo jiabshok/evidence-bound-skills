@@ -90,4 +90,4 @@ Python 3.9+、python-pptx ≥ 0.6.22、lxml；Pillow 用于字宽与图片检查
 
 ## 9. 复用与维护
 
-引擎版本 1.9.0（`deckkit.py` 中 `VERSION`）。引擎、规格格式、证据映射表、合成示例均可单独复用（MIT）。新增版式偏好在 `choose_layout` 加打分项；新增编辑操作在 `cmd_edit` 加分支并补日志。修改后先跑 `selftest`。
+引擎版本 1.10.0（`deckkit.py` 中 `VERSION`）。引擎、规格格式、证据映射表、合成示例均可单独复用（MIT）。新增版式偏好在 `choose_layout` 加打分项；新增编辑操作在 `cmd_edit` 加分支并补日志。修改后先跑 `selftest`。

@@ -126,7 +126,7 @@ def width(text, size, bold=False):
     size = fsz(size)
     total = 0.0
     for s, style in runs(text):
-        total += plain_width(s, size * (0.72 if style in ("sub", "sup") else 1.0), bold)
+        total += plain_width(s, max(size * 0.72, FLOOR[0]) if style in ("sub", "sup") else size, bold)
     return total
 
 
@@ -185,9 +185,9 @@ def tspans(text, size):
         dy = 0.0
         attrs = ""
         if style == "sub":
-            dy, attrs = 0.25 * size, ' font-size="%.2f"' % (size * 0.72)
+            dy, attrs = 0.25 * size, ' font-size="%.2f"' % max(size * 0.72, FLOOR[0])
         elif style == "sup":
-            dy, attrs = -0.35 * size, ' font-size="%.2f"' % (size * 0.72)
+            dy, attrs = -0.35 * size, ' font-size="%.2f"' % max(size * 0.72, FLOOR[0])
         elif style == "i":
             attrs = ' font-style="italic"'
         delta = dy - shift
@@ -210,9 +210,9 @@ def line_markup(text, x, y, size, anchor, bold):
     for s, style in rs:
         fs, yy, attrs = size, y, ""
         if style == "sub":
-            fs, yy = size * 0.72, y + 0.25 * size
+            fs, yy = max(size * 0.72, FLOOR[0]), y + 0.25 * size
         elif style == "sup":
-            fs, yy = size * 0.72, y - 0.35 * size
+            fs, yy = max(size * 0.72, FLOOR[0]), y - 0.35 * size
         elif style == "i":
             attrs = ' font-style="italic"'
         if fs != size:

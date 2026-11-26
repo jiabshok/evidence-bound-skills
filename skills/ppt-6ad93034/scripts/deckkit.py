@@ -30,7 +30,7 @@ sys.path.insert(0, HERE)
 import kit_sources as ks  # noqa: E402
 from kit_sources import INPUT, WORK, OUT, jload, jsave, say, rel, walk_inputs, read_table, table_path, resolve_src, best_quote, write_result, check, trace_numbers, contract, case_id  # noqa: E402
 
-VERSION = "1.9.0"
+VERSION = "1.10.0"
 PPTX = os.path.join(OUT, "presentation.pptx")
 
 

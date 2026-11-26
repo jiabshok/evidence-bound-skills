@@ -32,7 +32,7 @@ You write small text files in `/app/work`. The bundled engine does everything me
 | 2 | `python3 $S/figkit.py audit` (conflicts, n, percentages, limits, hedged statements), then `show P004-P012` / `find WORD` / `table FILE` (first 40 rows + summary; `table FILE 41-80` for more) | 2-4 |
 | 3 | write `/app/work/spec.json` with title, canvas, caption and the first two panels; add further panels in later responses | 1 |
 | 4 | `python3 $S/figkit.py build`; fix ATTENTION lines, rebuild | 1-4 |
-| + | **`python3 $S/figkit.py review`** after the content is complete - prints every claim next to the sentence it cites and the whole requirement list: correct wrong direction, sign, strength, condition, unit or citation; add every missing required item (use `show`/`table` to fetch it). It ends with POSSIBLY MISSING lines: close every real gap, rebuild, review again. Accuracy and completeness weigh far more than speed; watch the printed minutes: requested edit done by minute 8, verify by minute 10 (cut at 15; the model may be slow) | 2-5 |
+| + | **`python3 $S/figkit.py review`** after the content is complete - prints every claim next to the sentence it cites and the whole requirement list: correct wrong direction, sign, strength, condition, unit or citation; add every missing required item (use `show`/`table` to fetch it). It ends with POSSIBLY MISSING lines: close every real gap, rebuild, review again. Accuracy and completeness weigh far more than speed; watch the printed minutes: requested edit done by minute 6, verify by minute 8 (cut at 15; the model may be slow) | 2-5 |
 | 5 | `read_image /app/output/figure.png` once; correct what a reader would misread | 1-2 |
 | 6 | requested edit: change the files/spec, then `python3 $S/figkit.py build --revise "what and why"`; for a supplied SVG use `svgtree` + `edit` | 1-3 |
 | 7 | `python3 $S/figkit.py verify`, then stop | 1 |
@@ -98,4 +98,4 @@ Table that already holds summaries: no `stat`; `"y":"mean","err":"sd","err_meani
 
 `result.json` is written by the engine with the contract fields; do not rewrite it. If a case contract has extra root fields, add them with a few lines of Python that load, set and save the file after the last build.
 
-See `references/guide.md` for usage, method, limits and maintenance, and `examples/synthetic` for a complete input, spec and expected shape of the output (`python3 $S/figkit.py selftest`).
+See `references/guide.md` for usage, method, limits and maintenance, and `examples/synthetic` for a complete input, spec and expected shape of the output (`python3 $S/figkit.py selftest`). Same-input comparison with and without this Skill on local practice cases: `references/evidence.md` (not needed during a run).

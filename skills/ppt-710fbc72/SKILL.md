@@ -120,4 +120,4 @@ Ops run in the listed order. Slide numbers always mean the ORIGINAL numbering, w
 
 `result.json` is written by the engine with the contract fields; do not rewrite it. If a case contract has extra root fields, add them with a few lines of Python that load, set and save the file after the last build.
 
-`references/guide.md`: usage, method, limits, maintenance. `examples/synthetic`: invented input and spec (`selftest` runs it).
+`references/guide.md`: usage, method, limits, maintenance. `examples/synthetic`: invented input and spec (`selftest` runs it). Same-input comparison with and without this Skill on local practice cases: `references/evidence.md` (not needed during a run).

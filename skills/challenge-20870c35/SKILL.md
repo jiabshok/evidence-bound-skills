@@ -122,4 +122,4 @@ open(o+'narrative_plan.md','w').write('\n\n'.join(L))
 E
 ```
 
-For people: `references/guide.md` has usage, method, limits and maintenance, and `examples/synthetic` for a complete input, spec and expected shape of the output (`python3 $S/deckkit.py selftest`).
+For people: `references/guide.md` has usage, method, limits and maintenance, and `examples/synthetic` for a complete input, spec and expected shape of the output (`python3 $S/deckkit.py selftest`). Same-input comparison with and without this Skill on local practice cases: `references/evidence.md` (not needed during a run).

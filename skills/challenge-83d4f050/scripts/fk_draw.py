@@ -640,7 +640,7 @@ def render(spec, read, locked=None, scale=1.0, squeeze=False):
     cv = spec.get("canvas", {})
     W = float(cv.get("width_mm", 180)) * MM * scale
     fs = float(cv.get("font_pt", 8)) * (25.4 / 72) * MM
-    fk_text.FLOOR[0] = float(cv.get("min_font_pt") or 5.0) * (25.4 / 72) * MM * 1.004
+    fk_text.FLOOR[0] = float(cv.get("min_font_pt") or 5.0) * (25.4 / 72) * MM * 1.004 * (max(1.0, float(scale or 1.0)) if (cv.get("min_font_pt") or not cv.get("reserve")) else 1.0) * float(cv.get("_floor_boost") or 1.0)  # at final size: the drawing is scale times wider than the page
     theme = spec.get("theme") == "abstract"
     fs = max(fs, fk_text.FLOOR[0] * (1.02 if theme else 1 / 0.82))
     M = 10.0 if theme else 18.0
