@@ -272,6 +272,7 @@ UNIT_EXP = re.compile(r"(?:^|(?<=[\s(·/\[]))(m|cm|mm|km|L|mL|kg|g|mg|µg|μg|ng
 
 def tidy_markup(t):
     """10^9, L^-1 and 'mg L-1' get proper superscripts."""
+    t = re.sub(r"[_^]\{?([\u00b5\u03bc])\}?(?=[A-Za-z])", r"\1", str(t))
     t = re.sub(r"\^([-−+]?\d+)(?![}\d])", r"^{\1}", str(t))
     return UNIT_EXP.sub(lambda m: "%s^{\u2212%s}" % (m.group(1), m.group(3)), t)
 
@@ -545,25 +546,26 @@ def add_chart(slide, box, spec, read, fonts, name="Chart"):
     gf = slide.shapes.add_chart(CHARTS.get(kind, XL_CHART_TYPE.COLUMN_CLUSTERED), *[Emu(int(v)) for v in box], cd)
     gf.name = name
     ch = gf.chart
-    ch.font.size = Pt(12)
+    cfs = 14 if box[2] > 4.6 * 914400 and box[3] > 2.6 * 914400 else 12
+    ch.font.size = Pt(cfs)
     ch.has_title = False
     ch.has_legend = len(series) > 1 or kind == "pie"
     if ch.has_legend:
         ch.legend.position = XL_LEGEND_POSITION.BOTTOM
         ch.legend.include_in_layout = False
-        ch.legend.font.size = Pt(12)
+        ch.legend.font.size = Pt(cfs)
     if kind != "pie":
         va, ca = ch.value_axis, ch.category_axis
         va.has_major_gridlines = True
         va.major_gridlines.format.line.color.rgb = RGBColor(0xDD, 0xDD, 0xDD)
-        va.tick_labels.font.size = ca.tick_labels.font.size = Pt(12)
+        va.tick_labels.font.size = ca.tick_labels.font.size = Pt(cfs)
         for ax, lab in ((ca, spec.get("xlabel")), (va, spec.get("ylabel"))):
             if lab:
                 ax.has_title = True
                 ax.axis_title.text_frame.text = plain(lab)
                 for p in ax.axis_title.text_frame.paragraphs:
                     for r in p.runs:
-                        r.font.size, r.font.bold = Pt(12), False
+                        r.font.size, r.font.bold = Pt(cfs), False
         if kind in ("bar", "column", "barh", "stacked"):
             vals = [x for _, v, _ in series for x in v if x is not None]
             if vals and min(vals) >= 0:
@@ -574,7 +576,7 @@ def add_chart(slide, box, spec, read, fonts, name="Chart"):
         if kind in ("bar", "column", "barh") and len(cats) * len(series) <= 10 and spec.get("value_labels", True):
             pl = ch.plots[0]
             pl.has_data_labels = True
-            pl.data_labels.font.size = Pt(11)
+            pl.data_labels.font.size = Pt(12)
             pl.data_labels.show_value = True
             fm = "General"
             pl.data_labels.number_format, pl.data_labels.number_format_is_linked = fm, False
@@ -637,6 +639,20 @@ def copy_shape(slide, sh, box=None):
     return slide.shapes[-1]
 
 
+def readable_chart(cs, least=1200):
+    """Raise chart text below 12 pt (format only; data, categories and labels stay)."""
+    for tag in ("a:defRPr", "a:rPr", "a:endParaRPr"):
+        for r in cs.iter(qn(tag)):
+            if r.get("sz") and int(r.get("sz")) < least:
+                r.set("sz", str(least))
+    if cs.find(qn("c:txPr")) is None:  # chart-wide default, inherited by axes and legend without their own size
+        tx = etree.fromstring('<c:txPr xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="%d"/></a:pPr><a:endParaRPr lang="en-US"/></a:p></c:txPr>' % least)
+        after = [cs.find(qn(t)) for t in ("c:spPr", "c:chart")]
+        ref = next((x for x in after if x is not None), None)
+        if ref is not None:
+            ref.addnext(tx)
+
+
 def copy_chart(slide, sh, box):
     """Clone a native chart (any type) with its embedded workbook into another presentation."""
     from pptx.opc.packuri import PackURI
@@ -654,6 +670,7 @@ def copy_chart(slide, sh, box):
             ext.set(R + "id", part.relate_to(x, src.rels[rid].reltype))
         else:
             part._element.remove(ext)
+    readable_chart(part._element)
     rid = slide.part.relate_to(part, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart")
     el = copy.deepcopy(sh._element)
     for c in el.iter(qn("c:chart")):

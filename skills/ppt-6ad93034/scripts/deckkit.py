@@ -30,7 +30,7 @@ sys.path.insert(0, HERE)
 import kit_sources as ks  # noqa: E402
 from kit_sources import INPUT, WORK, OUT, jload, jsave, say, rel, walk_inputs, read_table, table_path, resolve_src, best_quote, write_result, check, trace_numbers, contract, case_id  # noqa: E402
 
-VERSION = "1.8.0"
+VERSION = "1.9.0"
 PPTX = os.path.join(OUT, "presentation.pptx")
 
 
@@ -1672,9 +1672,18 @@ def finish(d, warn, log, mode, master_before, tpl, t0, start=None, edit_log=None
     cmd = {"build": "build --spec ../deck_spec.json", "adapt": "adapt", "edit": "edit ../edits.json"}[mode]
     if mode == "edit" and os.path.exists(os.path.join(WORK, "edits.json")):
         shutil.copy(os.path.join(WORK, "edits.json"), os.path.join(OUT, "edits.json"))
+    with open(os.path.join(OUT, "rebuild", "rebuild.sh"), "w", encoding="utf-8") as f:
+        f.write("""#!/bin/sh
+# sh rebuild.sh [INPUT_FOLDER]   rebuilds the delivered deck into ../_rebuilt
+cd "$(dirname "$0")" || exit 1
+mkdir -p ../_work ../_rebuilt && cp -f ../edits.json ../overrides.json ../_work/ 2>/dev/null
+KIT_INPUT="${1:-/input}" KIT_WORK="$PWD/../_work" KIT_OUTPUT="$PWD/../_rebuilt" python3 deckkit.py %s
+""" % cmd)
+    if mode == "adapt" and os.path.exists(os.path.join(WORK, "overrides.json")):
+        shutil.copy(os.path.join(WORK, "overrides.json"), os.path.join(OUT, "overrides.json"))
     res = {"status": status, "editable_source": dict(inv(PPTX) or {}, format="native PPTX: live text, native tables/charts, glued connectors", template=inv(tpl) if tpl else None,
                                                       specification=os.path.join(OUT, "deck_spec.json") if slides else os.path.join(OUT, "edits.json"),
-                                                      layouts_used=sorted({r["layout"] for r in rep}), rebuild_command="cd <this folder>/rebuild && KIT_INPUT=<case input folder> KIT_WORK=../_work KIT_OUTPUT=../_rebuilt python3 deckkit.py %s  (relative paths)" % cmd),
+                                                      layouts_used=sorted({r["layout"] for r in rep}), rebuild_command="sh /app/output/rebuild/rebuild.sh /input   (first argument = case input folder; writes ../_rebuilt)"),
            "export_artifact": {"pdf": inv(pdf) if pdf else None, "slide_previews": pngs, "contact_sheet": sheet, "renderer": ver, "theme_fonts": {k: v for k, v in dk.theme_fonts(prs).items() if k != "colors"}},
            "content_map": cmap, "compliance_checks": checks, "exceptions": exceptions, "change_record": changes,
            "narrative": {k: d.get(k) for k in ("title", "audience", "goal", "storyline", "language") if d.get(k)}, "time_plan": [{"slide": n, "minutes": s.get("minutes")} for n, s in enumerate(slides, 1)],
@@ -1869,6 +1878,9 @@ def cmd_selftest(a):
         if r.returncode:
             say(r.stderr[-900:])
             return 1
+    rb = subprocess.run(["sh", d + "/out/rebuild/rebuild.sh", d + "/input"], capture_output=True, text=True, env=dict(os.environ))
+    okr = rb.returncode == 0 and os.path.exists(d + "/out/_rebuilt/presentation.pptx")
+    say("  delivered rebuild.sh rebuilds the deck                    %s" % ("ok" if okr else "FAILED " + (rb.stdout + rb.stderr)[-400:]))
     # negative tests: damage the delivered deck and require the audit to notice
     out = d + "/out/presentation.pptx"
     n = [0, 0]

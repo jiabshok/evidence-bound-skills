@@ -721,16 +721,16 @@ def _labels(res, fs):
                 if L < 14:
                     continue
                 horiz = abs(p[1] - q[1]) < 1
-                for t in (.5, .4, .6, .3, .7, .2, .8):
+                for t in (.5, .4, .6, .3, .7, .2, .8, .1, .9):
                     cx = p[0] + (q[0] - p[0]) * t
                     cy = p[1] + (q[1] - p[1]) * t
-                    options = [(cx, cy - h / 2 - 4), (cx, cy + h / 2 + 4), (cx, cy)] if horiz else \
-                        [(cx + w / 2 + 5, cy), (cx - w / 2 - 5, cy), (cx, cy)]
+                    options = [(cx, cy - h / 2 - 4), (cx, cy + h / 2 + 4), (cx, cy), (cx, cy - h / 2 - 16), (cx, cy + h / 2 + 16)] if horiz else \
+                        [(cx + w / 2 + 5, cy), (cx - w / 2 - 5, cy), (cx, cy), (cx + w / 2 + 18, cy), (cx - w / 2 - 18, cy)]
                     for rank_o, (ox, oy) in enumerate(options):
                         bx = Box(ox - w / 2, oy - h / 2, w, h)
                         cost = rank_o * 3 + abs(t - .5) * 12 - min(L, 120) * 0.06 + (170 - maxw) * 0.05
                         for b in boxes:
-                            cost += bx.overlap(b) * 1.2
+                            cost += bx.overlap(b) * 2.2
                         for b in placed:
                             cost += bx.overlap(b) * 2.5
                         for b in heads:

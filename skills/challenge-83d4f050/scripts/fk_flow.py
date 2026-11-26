@@ -126,6 +126,53 @@ def table_hint():
 HEAD = {"to": r"response|outcome|target|dependent|effect on|^to$", "from": r"predictor|source|factor|independent|regulator|^from$|explanatory", "value": r"estimate|coef|beta|\bstd|weight|effect size|^r$|rho|value", "p": r"^p\b|p.?val|signif|^p$"}
 
 
+COMMON = set("""the this these those figure table supplementary data results discussion introduction materials methods however therefore although although moreover furthermore addition contrast western blot antibody antibodies cells cell line lines protein proteins gene genes treatment treated control controls experiment experiments analysis study studies DNA RNA mRNA PCR FRET SDS PAGE EDTA ANOVA USA UK SEM SD CI NA""".split())
+
+
+def lexicon(limit=14):
+    """Entity names that the order uses (must-show items, edit request) and the paper repeats."""
+    order = " ".join(ks.walk_items()[0] + ks.edit_requests())
+    body = " ".join(q["text"] for q in ks.get_index()["passages"])
+    cand = {}
+    for m in re.finditer(r"(?<![\w-])(?:[A-Z][a-z]{3,}|[A-Za-z]{0,3}[A-Z][A-Za-z]*\d[\w-]*|[A-Z]{2,}[\w-]*)(?![\w-])", order):
+        w = m.group(0).strip("-")
+        if w.lower() in {x.lower() for x in COMMON} or len(w) < 3 or re.match(r"^[A-Z]{2,4}-?[A-Z]?\d{1,2}$", w) and w not in body:
+            continue
+        n = len(re.findall(r"(?<![\w])" + re.escape(w) + r"(?![\w])", body))
+        if re.fullmatch(r"[A-Z][a-z]+", w) and len(re.findall(r"(?<=[a-z,;] )" + re.escape(w) + r"(?![\w])", body)) < 3:
+            continue  # an ordinary capitalised word
+        if n >= 3:
+            cand[w] = n
+    return [w for w, _ in sorted(cand.items(), key=lambda t: -t[1])][:limit]
+
+
+def starter(kind, spec):
+    """A minimal honest draft, so that a complete delivery exists from the first minute; replaced as soon as the author writes lines."""
+    ps = ks.get_index()["passages"]
+    if kind == "pathway":
+        rows = []
+        for w in lexicon(8):
+            b = ks.rank_passages(w, 1)
+            rows.append("%s | %s | protein | - | %s" % (slug(w), w, b[0][0]["id"] if b else "workorder"))
+        return {"A.starter": "\n".join(rows) + "\n"} if len(rows) >= 2 else {}
+    if kind == "apparatus":
+        cnt = {}
+        for q in ps:
+            for m in re.finditer(r"(?i)\b((?:[a-z]+[- ]){0,2}(?:tank|reactor|pump|sump|column|chamber|furnace|condenser|cyclone|detector|camera|laser|valve|cylinder|heater|mixer|electrode|vessel|pipe|trap|filter|sensor))s?\b", q["text"]):
+                w = re.sub(r"(?i)^(?:(?:the|a|an|of|in|to|and|each|two|one|with|from|into|was|were|is|are)\s+)+", "", m.group(1).lower()).strip()
+                cnt.setdefault(w, []).append(q["id"])
+        rows = ["%s | %s | equipment | - | %s" % (slug(w), w[:1].upper() + w[1:], i[0]) for w, i in sorted(cnt.items(), key=lambda t: -len(t[1]))[:6] if len(i) > 1]
+        return {"A.starter": "\n".join(rows) + "\n"} if len(rows) >= 2 else {}
+    if kind == "schematic":
+        gs = order_facts()[1]
+        return {"A.starter": "".join("%sNode | %s | concept | %s | workorder\n" % (slug(g), g[:1].upper() + g[1:], slug(g)) for g in gs)} if len(gs) >= 2 else {}
+    if kind == "abstract":
+        ab = [q for q in ps if "abstract" in str(q.get("label") or q["loc"]).lower()]
+        last = re.split(r"(?<=[.!?])\s+", ab[-1]["text"])[-1] if ab else ""
+        return {"Q.starter": "- | %s | %s\n" % (spec["title"].replace("|", "/"), spec.get("title_src") or "workorder"), "C.starter": "- | %s | %s\n" % (last[:220].replace("|", "/"), ab[-1]["id"])} if last else {}
+    return {}
+
+
 def cmd_start(a):
     """Compact brief + drafted spec + first work item; small enough not to be truncated."""
     import contextlib
@@ -137,9 +184,21 @@ def cmd_start(a):
     sp = os.path.join(WORK, "spec.json")
     if not os.path.exists(sp):
         jsave(sp, spec)
+        try:
+            files.update(starter(kind, spec))
+        except Exception:
+            pass
         for k, v in files.items():
             with open(os.path.join(WORK, k), "w", encoding="utf-8") as f:
                 f.write(v)
+        jsave(os.path.join(WORK, ".kind"), {"kind": kind})
+        if any(k.endswith(".starter") for k in files):
+            import subprocess
+            import sys
+            try:
+                subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "figkit.py"), "build"], capture_output=True, text=True, timeout=60, env=dict(os.environ, KIT_STARTER="1"))
+            except Exception:
+                pass
     idx = ks.get_index()
     say("CASE %s | %d passages indexed from %s" % (ks.case_id(), len(idx["passages"]), ", ".join(sorted({q["file"] for q in idx["passages"]}))[:200]))
     say("DRAFT written by the engine: /app/work/spec.json = canvas %s, panels %s%s" % (json.dumps(spec["canvas"]), ", ".join("%s (%s)" % (p["id"], p["type"]) for p in spec["panels"]),
@@ -149,7 +208,9 @@ def cmd_start(a):
         say("TABLES: " + "\n        ".join(t))
     if idx["svgs"]:
         say("SUPPLIED SVG:", idx["svgs"], "-> use svgtree, then edit")
-    say("Do not open the material files: every item below brings its passages. Title, caption, notes come at the end (`set title \"...\"`, `set caption \"...\"`).\n")
+    if os.path.exists(os.path.join(OUT, "figure.svg")):
+        say("A STARTER draft (names only, status partial) is already delivered; it disappears with your first lines.")
+    say("Do not open or grep the material files: every item below brings its passages; runs that read the paper first ran out of time. Title, caption, notes come at the end (`set title \"...\"`, `set caption \"...\"`).\n")
     a.item = None
     ks.cmd_next(a)
 

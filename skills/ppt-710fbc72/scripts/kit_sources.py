@@ -384,6 +384,9 @@ def walk_items():
             t = ln.strip()
             if not re.match(r"(?i)(mode|case|case_id|id|size|canvas|export|output|deliver|edit|language|color|colour|font|min_font|traceab|svg_req|dpi|files?|work_order)", t):
                 wo.append(t)
+    for t in wo:  # parts the order itself demands
+        if re.search(r"(?i)(must_include|must_show|must_contain|required|mandatory)\b", t.split(":")[0]) and ":" in t:
+            items.append("work order " + t)
     if len(items) < 3:
         items += [t for t in wo if re.search(r"(?i)must|includ|requir|show|state|entit|element|step|relation|content|node|edge", t)]
     if len(items) < 3:
@@ -424,7 +427,7 @@ def rank_passages(text, k=6, cap=5200):
 HEDGE = re.compile(r"(?i)\b(may|might|could|possib\w+|propos\w+|postulat\w+|hypothes\w+|suggest\w*|likely|thought to|unclear|not known|speculat\w+|correlat\w+|has been shown|have been shown|previously)\b")
 
 
-def hedged(ids, cap=4200):
+def hedged(ids, cap=5200):
     """Sentences with hedged or cited relations that name at least two entities already drawn."""
     names = {i.lower() for i in ids if len(i) > 2}
     out, used, seen = [], 0, set()
@@ -434,25 +437,110 @@ def hedged(ids, cap=4200):
         lab = str(q.get("label") or q["loc"]).lower()
         base = 1.2 if "discuss" in lab else -1.0 if re.search(r"abstract|introd|method|summary", lab) else 0.0
         for j, z in enumerate(ss):
-            if not HEDGE.search(z) or len(z) > 600:
+            mech = bool(re.search(r"\[\d+\]", z) and re.search(r"(?i)\b(via|through|leading to|leads to|by (?:reduc|inhibit|activ|increas|suppress)\w+|mediated|results? in|due to)\b", z))
+            if not (HEDGE.search(z) or mech) or len(z) > 600 or not re.search(r"(?i)activat|inhibit|regulat|induc|increas|decreas|reduc|phosphoryl|\bbind|mediat|releas|transcri|suppress|feedback|translocat|correlat|promot|block|trigger|caus", z):
                 continue
             low, pair = z.lower(), (ss[j - 1] + " " + z if j and len(ss[j - 1]) < 420 else z).lower()
             cnt = lambda t: sum(1 for x in names if re.search(r"(?<![a-z0-9])" + re.escape(x) + r"(?![a-z0-9])", t))
             n1, n2 = cnt(low), cnt(pair)
             if n1 >= 1 and n2 >= 2:
                 strong = len(re.findall(r"(?i)\b(possib\w+|propos\w+|postulat\w+|hypothes\w+|correlat\w+|may|via)\b", z))
-                rows.append((min(n2, 3) + .4 * n1 + .6 * min(2, strong) + base, q, (ss[j - 1] + " " + z) if n1 < 2 and j and len(ss[j - 1]) < 420 else z))
+                rows.append((min(n2, 3) + .4 * n1 + .6 * min(2, strong) + 1.3 * mech + base, q, (ss[j - 1] + " " + z) if n1 < 2 and j and len(ss[j - 1]) < 420 else z))
     rows.sort(key=lambda r: -r[0])
     for v, q, z in rows:
         key = re.sub(r"\W+", "", z.lower())[:60]
         if key in seen:
             continue
         seen.add(key)
-        if used + len(z) > cap or len(out) >= 10:
+        if used + len(z) > cap or len(out) >= 13:
             break
         used += len(z)
         out.append((q, z))
     return out
+
+
+def item_passages(text, cap=6400):
+    """Passages for a whole requirement plus, for each of its parts, the best ones not yet shown."""
+    out = rank_passages(text, 5, 3800)
+    seen, used = {q["id"] for q, _ in out}, sum(len(t) for _, t in out)
+    parts = [x.strip() for x in re.split(r"[,;:]|\band\b|\bthen\b|\bplus\b|->|\u2192|\uff0c|\u3001|\uff1b|\u548c|\u4e0e", text) if x.strip()]
+    if len(parts) > 1:
+        for x in parts[:6]:
+            if len(re.findall(r"[a-z0-9]{3,}|[\u4e00-\u9fff]{2,}", x.lower())) < 2:
+                continue
+            for q, t in rank_passages(x, 3, 2600)[:2]:
+                if q["id"] in seen:
+                    continue
+                if used + len(t) > cap:
+                    return out
+                seen.add(q["id"])
+                used += len(t)
+                out.append((q, t))
+    return out
+
+
+def sites(limit=7):
+    """Modification sites the material names (antibody or functional), one line per sentence."""
+    rx = re.compile(r"(?i)\b(?:Tyr|Ser|Thr|Lys)[- ]?\d{2,4}\b|\bp[YST]\d{2,4}\b|\bY\d{3,4}\b|\b(?:tyrosine|serine|threonine|lysine)[- ]?\d{2,4}\b")
+    out = []
+    for q in get_index()["passages"]:
+        for z in re.split(r"(?<=[.!?])\s+", q["text"]):
+            ms = list(rx.finditer(z))
+            if ms:
+                i = max(0, ms[0].start() - 60)
+                out.append("%s ...%s..." % (q["id"], z[i:min(len(z), max(ms[-1].end() + 30, i + 60), i + 420)]))
+                if len(out) >= limit:
+                    return out
+    return out
+
+
+def dated(limit=22, cap=3400):
+    """Sentences that tie an action or measurement to days, weeks or a frequency."""
+    rx = re.compile(r"(?i)\b(?:days?|d|weeks?|months?|hours?)\s?[\u2212\u2013-]?\s?\d+|\b\d+(?:\s?[\u2013-]\s?\d+)?\s?(?:days?|weeks?|months?)\b|\b(daily|weekly|monthly|every (?:day|week|month|\w+ days?)|once a (?:day|week)|twice a (?:day|week))\b")
+    out, used, seen = [], 0, set()
+    for q in get_index()["passages"]:
+        lab = str(q.get("label") or q["loc"])
+        if re.search(r"(?i)abstract|introd|discussion|reference", lab):
+            continue
+        meth = bool(re.search(r"(?i)method|material|procedure|experiment|design|sampl|protocol|analys", lab))
+        for z in re.split(r"(?<=[.!?;])\s+", q["text"]):
+            if rx.search(z) and (meth or re.search(r"(?i)sampl|measur|collect|analy[sz]|extract|monitor|record", z)):
+                k = re.sub(r"\W+", "", z.lower())[:70]
+                if k in seen:
+                    continue
+                seen.add(k)
+                t = z.strip()[:210]
+                if used + len(t) > cap or len(out) >= limit:
+                    return out
+                used += len(t)
+                out.append("%s %s" % (q["id"], t))
+    return out
+
+
+def edge_gaps():
+    """Relations whose evidence record is still incomplete (panel/table locator, reference of a cited relation)."""
+    out = []
+    for f in sorted(glob.glob(os.path.join(WORK, "*.edges"))):
+        for ln in open(f, encoding="utf-8", errors="replace"):
+            c = [x.strip() for x in ln.split("|")]
+            if len(c) < 4 or ln.startswith("#") or c[3] == "delete":
+                continue
+            cert = c[4] if len(c) > 4 else ""
+            ev = c[6] if len(c) > 6 and "=" not in c[6] else ""
+            why = []
+            if not re.search(r"(?i)fig|table|movie|suppl|text|\bref|\[\d", ev + " " + c[3]):
+                why.append("no figure/table/reference in evidence")
+            if cert == "cited" and not re.search(r"(?i)ref|\[\d|et al", c[3] + " " + ev):
+                why.append("cited without its reference")
+            if cert in ("", "-"):
+                why.append("certainty empty")
+            if why:
+                out.append("%s -> %s (%s): %s" % (c[0], c[1], c[2], "; ".join(why)))
+    return out
+
+
+def edit_requests():
+    return [ln.strip() for ln in must_lines() if re.search(r"(?i)^\s*(edit|revision|change)[\w.\[\]]*\.?(text|do|instruction|description|request)?\s*:", ln)]
 
 
 def have_lines():
@@ -481,52 +569,77 @@ def cmd_next(a):
     k = int(open(p).read().split("/")[0]) if os.path.exists(p) else 0
     if a.item:
         k = a.item - 1
-    edit = [ln.strip() for ln in must_lines() if re.search(r"(?i)^\s*(edit|revision|change)[\w.\[\]]*\.?(text|do|instruction|description|request)?\s*:", ln)]
+    edit = edit_requests()
+    hedge = os.path.join(WORK, ".hedge")
+    if k >= min(3, len(items)) and not os.path.exists(hedge) and elapsed() < 8.5 and have_lines()[1]:
+        open(hedge, "w").close()
+        rows = hedged(have_lines()[0])
+        if rows:
+            say("EXTRA ITEM (%.1f min): relations the authors only propose or take from earlier work, and tests of them, about the entities you already drew. Add the missing ones that belong to this figure's question (certainty proposed or cited; keep every intermediate the sentence names; a correlation is `association`), at most 6 lines, then `build` and `next`:" % elapsed())
+            for q, t in rows:
+                say("  %s [%s] %s" % (q["id"], q.get("label") or q["loc"], t))
+            return
     built = os.path.exists(os.path.join(WORK, ".builds"))
-    late = elapsed() > (5 if built else 8)
+    late = elapsed() > (6.5 if built else 8)
     if late and k < len(items):
         say("%.1f min used: the remaining items are printed together; cover only what is still missing, in one short batch." % elapsed())
         for j in range(k, len(items)):
             say("  ITEM %d: %s" % (j + 1, items[j]))
         k = len(items)
     elif k < len(items):
-        it = items[k]
         n, e = have_lines()
-        say("ITEM %d of %d (%.1f min): %s" % (k + 1, len(items), elapsed(), it))
-        if k == 0:
-            if rules:
-                say("ALWAYS: " + " | ".join(rules)[:900])
-            if wo:
-                say("WORK ORDER: " + " | ".join(wo)[:1500])
-        if n:
-            say("already declared: %s; %d relations" % (", ".join(n)[:700], e))
-        if re.search(r"(?i)\blegend\b", it) and len(it) < 90:
-            say("(The legend is drawn automatically from the types used: write no legend text; check only that each demanded encoding is used, then run `next`.)")
-        if re.search(r"(?i)table|model output|\brows?\b|all (links|paths|edges|variables|relations)|coefficient|estimate|\u8868", it):
-            try:
-                import fk_flow
-                th = fk_flow.table_hint()
-            except ImportError:
-                th = []
-            if th:
-                say("TABLES: " + "; ".join(th))
-                say("Relations that come from table rows: do NOT type them - `fromtable \"Table 2\" --where \"p<0.1\" --dash \"p>=0.05\"` writes nodes, values, signs and row sources (limits from the order); then assign groups in A.place.")
-        say("passages for this item:")
-        for q, t in rank_passages(it):
-            say("  %s [%s] %s" % (q["id"], q.get("label") or q["loc"], t))
+        k0 = k
+        pace = elapsed() / max(1, k0)
+        batch = [k0]
+        while batch[-1] + 1 < len(items) and len(batch) < 3 and (re.search(r"(?i)\blegend\b|\bscale\b|^(?:for )?(?:every|each) (?:edge|arrow|relation)", items[batch[-1]]) or (len(batch) < 2 and k0 >= 2 and pace > .85)):
+            batch.append(batch[-1] + 1)
+        for k in batch:
+          it = items[k]
+          say("ITEM %d of %d (%.1f min): %s" % (k + 1, len(items), elapsed(), it))
+          if k == 0:
+              if rules:
+                  say("ALWAYS: " + " | ".join(rules)[:900])
+              if wo:
+                  say("WORK ORDER: " + " | ".join(wo)[:1500])
+          if n and k == k0:
+              say("already declared: %s; %d relations" % (", ".join(n)[:700], e))
+          if re.search(r"(?i)\blegend\b", it) and len(it) < 90:
+              say("(The legend is drawn automatically from the types used: write no legend text; check only that each demanded encoding is used, then run `next`.)")
+          if re.search(r"(?i)table|model output|\brows?\b|all (links|paths|edges|variables|relations)|coefficient|estimate|\u8868", it):
+              try:
+                  import fk_flow
+                  th = fk_flow.table_hint()
+              except ImportError:
+                  th = []
+              if th:
+                  say("TABLES: " + "; ".join(th))
+                  say("Relations that come from table rows: do NOT type them - `fromtable \"Table 2\" --where \"p<0.1\" --dash \"p>=0.05\"` writes nodes, values, signs and row sources (limits from the order); then assign groups in A.place.")
+          say("passages for this item:")
+          for q, t in item_passages(it, 6400 if len(batch) == 1 else 3600):
+              say("  %s [%s] %s" % (q["id"], q.get("label") or q["loc"], t))
+          if re.search(r"(?i)phosph|modif|\bsites?\b|acetyl|ubiquit", it + " " + " ".join(rules)):
+              sl = sites()
+              if sl and k == 0 or sl and re.search(r"(?i)phosph|site", it):
+                  say("SITES NAMED in the material (put them in the node note with their status, e.g. antibody site; never claim that none is named):")
+                  for x in sl[:7]:
+                      say("  " + x[:440])
+          if re.search(r"(?i)\b(days?|dates?|schedule|time axis|timeline|sampling|samples|when|frequency|weekly|daily)\b", it):
+              dl = dated()
+              if dl:
+                  say("DATED STATEMENTS in the material (every measurement or action with its days belongs in the schedule; check none is missing):")
+                  for x in dl:
+                      say("  " + x)
+          if re.search(r"(?i)\b(every|each|all)\b.{0,20}(edge|relation|arrow|link|connection)", it):
+              eg = edge_gaps()
+              if eg:
+                  say("RELATIONS WITH AN INCOMPLETE EVIDENCE RECORD (%d): delete and re-append each with certainty and evidence (panel; system; condition; ref for cited):" % len(eg))
+                  for x in eg[:14]:
+                      say("  " + x)
         open(p, "w").write("%d/%d" % (k + 1, len(items)))
-        say("NOW: one command for THIS item only - append at most 6 node lines and 6 relation lines (or one text/chart/timeline panel), each with its passage id, then `build` and `next` in the same command. "
-            "If it is already covered or is only a rule, run `next`. Use `find WORD`/`show Pnnn`/`table FILE` for one named missing fact only. Do not think about later items, layout or the edit: they come one by one.")
+        say("NOW: one command for %s - append at most %d node lines and %d relation lines (or one text/chart/timeline panel), each with its passage id, then `build` and `next` in the same command. "
+            "If it is already covered or is only a rule, run `next`. Use `find WORD`/`show Pnnn`/`table FILE` for one named missing fact only. Do not think about later items, layout or the edit: they come one by one."
+            % ("THIS item only" if len(batch) == 1 else "these %d items together" % len(batch), 6 + 3 * (len(batch) > 1), 6 + 4 * (len(batch) > 1)))
         return
-    hedge = os.path.join(WORK, ".hedge")
-    if k >= len(items) and not os.path.exists(hedge) and elapsed() < 6.5 and have_lines()[1]:
-        open(hedge, "w").close()
-        rows = hedged(have_lines()[0])
-        if rows:
-            say("LAST ITEM (%.1f min): relations the authors only propose or take from earlier work, and tests of them, about the entities you already drew. Add the missing ones that belong to this figure's question (certainty proposed or cited; keep every intermediate the sentence names; a correlation is `association`), at most 6 lines, then `build` and `next`:" % elapsed())
-            for q, t in rows:
-                say("  %s [%s] %s" % (q["id"], q.get("label") or q["loc"], t))
-            return
     if k >= len(items):
         open(p, "w").write("%d/%d" % (len(items) + 1, len(items)))
         say("ALL %d ITEMS VISITED (%.1f min). Now: (1) `audit` once; real conflicts, missing facts and limits: `set unresolved \"item | conflict | both values | P008,P021\"` and, if a reader needs it, a line in notes.items; `set title \"...\"`, `set caption \"...\"`; (2) `build`; (3) `review` and close real gaps; (4) the requested edit with `build --revise`; (5) read_image once; (6) `verify`, stop." % (len(items), elapsed()))
@@ -534,6 +647,11 @@ def cmd_next(a):
             say("ENCODINGS DEMANDED (check each is used as asked): " + " | ".join(wo)[:900])
         for ln in edit[:4]:
             say("EDIT REQUEST: " + ln[:600])
+        long_ = max(edit, key=len) if edit else ""
+        if len(long_) > 40:
+            say("passages for the edit (use the measured result, its condition and p, with its own passage):")
+            for q, t in item_passages(re.sub(r"^[\w.\[\]]+:", "", long_), 3600):
+                say("  %s [%s] %s" % (q["id"], q.get("label") or q["loc"], t[:700]))
 
 
 def first_step_hint(fig):
@@ -764,7 +882,7 @@ def auto_match(text, k=1, floor=.5):
         hit = sum(1 for w in words if w in low)
         nh = len(nums & have)
         score = (hit + 2.0 * nh) / (len(words) + 2.0 * len(nums))
-        if score < floor or hit < 2 or (nums and nh < max(1, .6 * len(nums))) or (not nums and (hit < 4 or hit < .6 * len(words))):
+        if score < floor or hit < 2 or (nums and nh < len(nums)) or (not nums and (hit < 4 or hit < .6 * len(words))):
             continue
         quote = best_quote(text, q["text"])
         qn = set(numbers(quote))
@@ -900,6 +1018,28 @@ def coverage(blob, least=.5):
     return rows
 
 
+def table_gaps(text):
+    """Rows of a source table that the delivery uses in part: which row labels are not shown."""
+    low = re.sub(r"[\s\-\u2010-\u2015_]+", " ", text.lower())
+    tabs = {}
+    for q in get_index()["passages"]:
+        lab = str(q.get("label") or "")
+        if re.match(r"(?i)table\s*\w+", lab) and q["text"].count("|") >= 1:
+            c = [x.strip() for x in re.split(r"\s*\|\s*", q["text"])]
+            if c and re.search(r"[A-Za-z\u4e00-\u9fff]{3}", c[0]) and any(re.search(r"\d", x) for x in c[1:]):
+                tabs.setdefault(re.split(r",", lab)[0], []).append((q["id"], c))
+    out = []
+    for lab, rows in tabs.items():
+        if not 4 <= len(rows) <= 40:
+            continue
+        seen = lambda c: re.sub(r"[\s\-\u2010-\u2015_]+", " ", re.sub(r"\(.*?\)|\^\S+", "", c[0]).lower()).strip() in low
+        hit = [r for r in rows if seen(r[1])]
+        miss = [r for r in rows if not seen(r[1])]
+        if len(hit) >= max(2, .3 * len(rows)) and miss:
+            out.append("%s: %d of %d rows shown; not shown: %s" % (lab, len(hit), len(rows), "; ".join("%s %s" % (i, " | ".join(c)[:90]) for i, c in miss[:9])))
+    return out[:4]
+
+
 def missing_facts(text):
     """For each must-show item: printed values in its best-matching sentences that the delivery does not contain."""
     have = set(numbers(text))
@@ -942,6 +1082,14 @@ def print_must(blob, cap=5200, visible=None):
             say("  [%d%%] %s\n        absent terms: %s" % (round(100 * cov), ln[:170], ", ".join(miss[:9])))
     else:
         say("\n# every requirement line shares most of its terms with the delivered text")
+    try:
+        tg = table_gaps(visible or blob)
+    except Exception:
+        tg = []
+    if tg:
+        say("\n# TABLE ROWS NOT SHOWN (if the order asks for all changed and unchanged results, every row of that group belongs in, with value and p):")
+        for x in tg:
+            say("  " + x)
     try:
         facts = missing_facts((visible or blob))
     except Exception:

@@ -803,7 +803,7 @@ def render(spec, read, locked=None, scale=1.0, squeeze=False):
     if "dash" in used_cert:
         leg.append(("c", "", spec.get("legend_labels", {}).get("certainty", ("Dotted" if PDASH[0] == "2 4" else "Dashed") + ": proposed / not established")))
     if used_cert and any(p["type"] == "diagram" and p.get("edges") for p in spec["panels"]):
-        leg.append(("w", {"w": 2, "c": "#222A33", "d": ""}, spec.get("legend_labels", {}).get("stated", "Solid, coloured: reported in this source")))
+        leg.append(("w", {"w": 2, "c": "#222A33", "d": ""}, spec.get("legend_labels", {}).get("stated", "Solid, coloured: shown in this study" if spec.get("_shown") else "Solid, coloured: reported in this source")))
     if "grey" in used_cert:
         leg.append(("g", "cited", spec.get("legend_labels", {}).get("cited", "Grey: from cited literature, not this study")))
     for p in spec["panels"]:

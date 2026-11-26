@@ -7,6 +7,8 @@ description: Draw or edit experimental apparatus diagrams and technical route / 
 
 Use when the task is an apparatus, a process flow or a technical route. Someone should be able to count the parts, follow each line and execute the steps in order.
 
+**Do not read the paper up front** (no cat, grep or python on material.json, PDFs or text files). Runs that did used 6-12 of their 15 minutes before the first drawing and lost the edit. `start` and `next` select the passages for every requirement; open one more passage with `show` only when an item names a fact you cannot see.
+
 ## Rules for this task
 
 - Must-show facts must be readable ON the figure (node note, edge label, text item or footnote), each with its comparator, unit and n; caption or result.json alone does not count. They stay visible in the edited version too. State factor levels and replicates in words ("control / treated, n = 3 per cell"), not as "2x3x3". A null result the order names (no interaction, n.s.) is written out.
@@ -15,6 +17,7 @@ Use when the task is an apparatus, a process flow or a technical route. Someone 
 - In a panel with groups give every node a group. Groups are subsystems (supply, reaction zone, detection) or phases; if the order wants a time axis or sampling days, add a `timeline` panel as the last row (it replaces day labels scattered over steps).
 - Line types: material/gas/liquid, energy, signal/data/control are different; never mix them in one line. Joints: `assembly`. A leaving stream with no stated destination: node "not specified" plus an `unresolved` entry.
 - Design splits are drawn as splits: treatment first, then the sub-branches inside each treatment, with n on every branch. Dosing nodes carry reagent, concentration and amount per addition; a change of analytical method carries its days and its limit.
+- Recirculating water, gas or material keeps its own type (`liquid`, `gas`, `material`) all the way round; `return` is for procedure loops (repeat, recycle step). A point of entry or exit the source does not name is not drawn as stated: node "entry not specified" or a footnote. Control or untreated branches bypass the treatment steps and rejoin at the common sampling.
 - One unit with two names in the source = one node; name the alias in a visible footnote ("X = Y in the text"); volumes that do not add up to the printed total: visible footnote plus `unresolved`.
 - Steps: parameters (temperature, time, rate, n) exactly as given in `note`. Parallel steps: 4a/4b from the same predecessor (they align by themselves). Decisions show both outcomes; loops go back with `return`, label = stop condition or number of cycles.
 - Never move a value from one run, step or instrument to another. Missing dimension/model/flow rate: "not reported" in `unresolved`, no guess on the drawing.

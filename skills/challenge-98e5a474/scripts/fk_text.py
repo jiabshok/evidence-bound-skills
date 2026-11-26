@@ -95,6 +95,7 @@ UNIT_EXP = re.compile(r"(?:^|(?<=[\s(·/\[]))(m|cm|mm|km|L|mL|kg|g|mg|µg|μg|ng
 
 def tidy_markup(t):
     """10^9, L^-1 and 'mg L-1' get proper superscripts."""
+    t = re.sub(r"[_^]\{?([\u00b5\u03bc])\}?(?=[A-Za-z])", r"\1", str(t))
     t = re.sub(r"\^([-−+]?\d+)(?![}\d])", r"^{\1}", str(t))
     return UNIT_EXP.sub(lambda m: "%s^{\u2212%s}" % (m.group(1), m.group(3)), t)
 

@@ -7,6 +7,8 @@ description: Draw or edit biological mechanism and pathway diagrams (genes, prot
 
 Use for a biological mechanism or signalling/metabolic pathway figure; not for statistics, study design or prose. Each arrow is a claim: subject, action, object, place, evidence. Input: `/input` (case.json, task.md, materials, `artifacts/figure-workorder.json`). Output in `/app/output`: figure.svg/png/pdf, source map, edge table, edit record, result.json.
 
+**Do not read the paper up front** (no cat, grep or python on material.json, PDFs or text files). Runs that did used 6-12 of their 15 minutes before the first drawing and lost the edit. `start` and `next` select the passages for every requirement; open one more passage with `show` only when an item names a fact you cannot see.
+
 ## Rules for this task
 
 - No text panel and no items that repeat the legend, the footnotes or the caption: one diagram uses the whole page; at most 4 footnotes, each once. Grey edges carry their reference in the label ("ref 13"). Phospho-sites the paper names (also as antibody sites) go into the node note with that status.

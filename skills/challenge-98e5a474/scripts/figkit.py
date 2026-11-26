@@ -43,7 +43,7 @@ from kit_sources import (INPUT, WORK, OUT, CONTRACT, jload, jsave, say, walk_inp
 
 from kit_sources import elapsed as ks_elapsed  # noqa: E402
 
-VERSION = "1.8.0"
+VERSION = "1.9.0"
 
 # --- spec validation -------------------------------------------------------------
 ALIAS_T = {"dimerization": "dimerisation", "dimerises": "dimerisation", "dimerizes": "dimerisation", "heterodimerisation": "dimerisation", "heterodimerization": "dimerisation", "homodimerisation": "dimerisation", "complex_formation": "dimerisation", "dimer": "dimerisation",
@@ -119,6 +119,8 @@ def validate(spec):
                     err.append("panel %s: node id '%s' repeated" % (pid, n["id"]))
                 nid.add(n["id"])
                 n.setdefault("label", n["id"])
+                if n.get("step") is not None:  # the number is drawn by the engine
+                    n["label"] = re.sub(r"^\s*(?:step\s*)?%s\s*[.):]\s*" % re.escape(str(n["step"])), "", str(n["label"]), flags=re.I) or n["label"]
                 k = str(n.get("kind", "concept")).lower().replace("-", "_").replace(" ", "_")
                 if k not in fk_draw.KINDS:
                     warn.append("panel %s node %s: kind '%s' unknown, drawn as concept; kinds: %s" % (pid, n["id"], k, " ".join(fk_draw.KINDS)))
@@ -173,6 +175,25 @@ def validate(spec):
                 for lab_, tos in outs.items():
                     if len(tos) == 2 and len({(next((q for q in nodes if q["id"] == t_), {}) or {}).get("label", t_).rstrip(" 0123456789") for t_ in tos}) == 2:
                         warn.append("panel %s: '%s' sends '%s' to two different units (%s) - is it a split, or one stream through them in sequence? re-read the sentence" % (pid, n["label"], lab_, ", ".join(sorted(tos))))
+            st_ = sorted(int(float(n["step"])) for n in nodes if re.fullmatch(r"\d+(\.0)?", str(n.get("step", ""))))
+            if len(st_) > 2:
+                gap_ = [k for k in range(st_[0], st_[-1]) if k not in st_]
+                if gap_:
+                    warn.append("panel %s: step numbers %s are missing in the sequence" % (pid, gap_))
+            lab_of = {n["id"]: n["label"] for n in nodes}
+            steps_ = [n for n in nodes if re.match(r"\d", str(n.get("step", "")))]
+            if len(steps_) > 4:
+                last_ = max(steps_, key=lambda n: float(re.match(r"\d+(\.\d+)?", str(n["step"])).group(0)))
+                ends_ = [n for n in steps_ if n is not last_ and not any(e["from"] == n["id"] for e in p["edges"]) and any(e["to"] == n["id"] for e in p["edges"])]
+                if ends_:
+                    warn.append("panel %s: route stops at %s - does it continue (e.g. to the common sampling) in the source?" % (pid, ", ".join("'%s. %s'" % (n["step"], n["label"]) for n in ends_[:4])))
+            for n in nodes:
+                kids = [e["to"] for e in p["edges"] if e["from"] == n["id"]]
+                if n["kind"] == "decision" and len(kids) > 1:
+                    reach = {k: {e["to"] for e in p["edges"] if e["from"] == k} | {k} for k in kids}
+                    shared = [x for x in set.union(*reach.values()) if sum(x in r for r in reach.values()) == len(kids)]
+                    if shared:
+                        warn.append("panel %s: every branch of '%s' runs into %s - true for the control / untreated branch too? If the source skips it there, let that branch bypass it" % (pid, n["label"], ", ".join(repr(lab_of.get(x, x)) for x in shared[:2])))
             lonely = nid - {e["from"] for e in p["edges"]} - {e["to"] for e in p["edges"]}
             if lonely and p["edges"]:
                 warn.append("panel %s: nodes without any relation: %s (intended?)" % (pid, sorted(lonely)))
@@ -346,6 +367,22 @@ def read_lines(pid, what, problems):
 def merge_lines(spec):
     problems = []
     spec.setdefault("panels", [])
+    spec.pop("_starter", None)
+    for f in sorted(glob.glob(os.path.join(WORK, "*.starter"))):  # first-minute draft, only until the author's own lines exist
+        pid = os.path.basename(f)[:-8]
+        if glob.glob(os.path.join(WORK, "*.nodes")) or glob.glob(os.path.join(WORK, "*.items")) or glob.glob(os.path.join(WORK, "*.panel.json")):
+            break
+        kind_ = "items" if any(q.get("id") == pid and q.get("type") in ("text", "timeline") for q in spec["panels"]) else "nodes"
+        rows = []
+        for ln in open(f, encoding="utf-8"):
+            c = [x.strip() for x in ln.split("|")]
+            if len(c) >= 3:
+                rows.append({"value": None, "text": c[1], "src": [c[2]]} if kind_ == "items" else {"id": c[0], "label": c[1], "kind": c[2], "group": c[3] if len(c) > 3 and c[3] != "-" else None, "src": [c[4]] if len(c) > 4 else None})
+        for q in spec["panels"]:
+            if q.get("id") == pid and rows:
+                q[kind_] = [{k: v for k, v in r.items() if v} for r in rows]
+                q.setdefault("edges", []) if kind_ == "nodes" else None
+                spec["_starter"] = True
     for f in sorted(glob.glob(os.path.join(WORK, "*.panel.json"))):  # one panel per file (charts)
         pid = os.path.basename(f)[:-len(".panel.json")]
         try:
@@ -606,10 +643,13 @@ def cmd_build(a):
             for x in q:
                 spec["panels"] = [y for y in spec["panels"] if y.get("id") != x.get("id")] + [x]
         rec_ = os.path.join(OUT, "edit_record.json")
-    if not a.revise and not a.restart and os.path.exists(rec_) and os.path.exists(os.path.join(OUT, "figure_before_edit.svg")):
-        a.revise = jload(rec_).get("request") or "requested edit (continued)"
-        say("NOTE the edit has begun: this build continues it as `build --revise` (the frozen first version stays). Use `build --restart` only to redo the first version and then the edit.")
-    lp = merge_lines(spec)
+        if not a.revise and not a.restart and os.path.exists(rec_) and os.path.exists(os.path.join(OUT, "figure_before_edit.svg")):
+            a.revise = jload(rec_).get("request") or "requested edit (continued)"
+            say("NOTE the edit has begun: this build continues it as `build --revise` (the frozen first version stays). Use `build --restart` only to redo the first version and then the edit.")
+        lp = merge_lines(spec)
+    else:
+        lp = []
+
     def empty_(p):
         t_ = str(p.get("type") or "")
         if t_ in ("diagram", "flow", "pathway", "schematic", "roadmap") or (not t_ and "nodes" in p):
@@ -620,18 +660,27 @@ def cmd_build(a):
     pend_ = [p.get("id") for p in spec.get("panels") or [] if isinstance(p, dict) and empty_(p)]
     if pend_ and len(pend_) < len(spec["panels"]):
         spec["panels"] = [p for p in spec["panels"] if p.get("id") not in pend_]
-    if spec.get("theme") == "abstract" and not a.revise:  # the engine arranges an abstract; hand-set widths made columns unreadable
+    if spec.get("theme") == "abstract" and not a.revise and not a.spec:  # the engine arranges an abstract; hand-set widths made columns unreadable
         spec.pop("layout", None)
         for p_ in spec["panels"]:
             p_.pop("weight", None)
             p_.pop("height_mm", None)
-    flat_ = lambda q: [y for x in q for y in (flat_(x) if isinstance(x, list) else [x])]
+
+    def flat_(q):
+        return [y for x in q for y in (flat_(x) if isinstance(x, list) else [x])]
     if spec.get("layout") and sorted(map(str, flat_(spec["layout"]))) != sorted(str(p.get("id")) for p in spec.get("panels") or []):
         spec.pop("layout")   # the list of panels changed: let the engine arrange them
-    else:
-        lp = []
     err, warn = validate(spec)
     err = lp + err
+    try:
+        import fk_flow
+        want_ = fk_flow.order_facts()[1]
+        got_ = " ".join(str(g.get("label", "")) + " " + str(g.get("id", "")) for p in spec.get("panels", []) for g in p.get("groups", []) or [] if any(n.get("group") == g.get("id") for n in p.get("nodes", []))).lower()
+        lost_ = [g for g in want_ if re.sub(r"\W+", "", g.lower())[:8] not in re.sub(r"\W+", "", got_)]
+        if lost_ and want_ and not spec.get("_starter") and len(lost_) < len(want_):
+            warn.append("the order demands group(s) %s but nothing is drawn in them: which element or proposed step does the source place there?" % ", ".join(lost_))
+    except Exception:
+        pass
     if err:
         say("SPEC ERRORS (nothing overwritten):")
         for e in err[:25]:
@@ -647,17 +696,30 @@ def cmd_build(a):
     for k in ("title", "caption"):
         if spec.get(k):
             spec[k] = public_refs(spec[k])
+    seen_, keep_ = set(), []
+    for f in spec.get("footnotes") or []:  # the same note once
+        k_ = re.sub(r"\W+", "", str(f.get("text", "") if isinstance(f, dict) else f).lower())
+        if k_ and k_ not in seen_:
+            seen_.add(k_)
+            keep_.append(f)
+    spec["footnotes"] = keep_
     spec["footnotes"] = [dict(f, text=public_refs(f.get("text", ""))) if isinstance(f, dict) else public_refs(f) for f in spec.get("footnotes") or []]
     lints = []
     for where, t in [("title", spec.get("title", "")), ("caption", spec.get("caption", ""))] + [("panel %s title" % p["id"], p.get("title", "")) for p in spec["panels"]] + [("panel %s item" % p["id"], it.get("text", "") if isinstance(it, dict) else str(it)) for p in spec["panels"] for it in p.get("items", []) or []]:
         for m in lint_text(strip_markup(str(t))):
             lints.append("%s: %s" % (where, m))
+    for t_ in [str(f.get("text", "") if isinstance(f, dict) else f) for f in spec.get("footnotes") or []] + [str(spec.get("caption") or "")]:
+        for z_ in re.split(r"(?<=[.;])\s+", t_):
+            if re.search(r"(?i)^(?:no|none)\b[^.;]{0,70}\b(?:is|are|was|were)\s+(?:named|reported|stated|given|mentioned|described|specified)\b", z_.strip()):
+                warn.append("ABSENCE CLAIM '%s' - confirm it with `find` before keeping it" % z_.strip()[:90])
     warn += ["WORDING " + x for x in lints[:5]]
     canvas_fix(spec)
     plain = json.loads(json.dumps(spec))
     prev_svg = os.path.join(OUT, "figure.svg")
     layout_file = os.path.join(WORK, "layout.json")
     locked, lock_scale = None, None
+    if re.search(r"shown (here|in this)|demonstrated|this study|this work", " ".join(must_lines()).lower()):
+        spec["_shown"] = True
     if re.search(r"propos[^.;|]{0,40}dotted|dotted[^.;|]{0,40}propos", " ".join(must_lines()).lower()):
         fk_draw.PDASH[0] = "2 4"
     v1 = os.path.join(OUT, "figure_before_edit.svg")
@@ -876,7 +938,9 @@ def cmd_build(a):
     if exp["fallback_log"]:
         exceptions.append({"item": "export renderer fallback", "state": "resolved" if exp["renderer"] else "failed", "detail": exp["fallback_log"], "used": exp["renderer"]})
     files = [p for p in (prev_svg, png, pdf) if os.path.exists(p)]
-    status = "completed" if len(files) == 3 and not problems and ok_rel and all(r["pass"] for r in rb) else "partial"
+    status = "completed" if len(files) == 3 and not problems and ok_rel and all(r["pass"] for r in rb) and not spec.get("_starter") else "partial"
+    if spec.get("_starter"):
+        exceptions.append({"item": "starter draft", "state": "not a finished figure", "detail": "entity names taken from the work order and the material by the engine; no relations drawn yet"})
     with open(os.path.join(OUT, "element_source_map.csv"), "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
         w.writerow(["element_id", "type", "label_or_relation", "certainty", "source_id", "file", "locator", "quote"])
@@ -910,7 +974,7 @@ def cmd_build(a):
     if spec.get("caption"):
         with open(os.path.join(OUT, "figure_caption.md"), "w", encoding="utf-8") as f:
             f.write("# %s\n\n%s\n" % (strip_markup(spec.get("title", "Figure")), spec["caption"]))
-    for s in ("figkit.py", "kit_sources.py", "kit_table.py", "fk_text.py", "fk_layout.py", "fk_chart.py", "fk_draw.py", "fk_export.py"):
+    for s in ("figkit.py", "kit_sources.py", "kit_table.py", "fk_text.py", "fk_layout.py", "fk_chart.py", "fk_draw.py", "fk_export.py", "fk_flow.py"):
         os.makedirs(os.path.join(OUT, "rebuild"), exist_ok=True)
         try:
             shutil.copy(os.path.join(HERE, s), os.path.join(OUT, "rebuild", s))
@@ -939,6 +1003,13 @@ def cmd_build(a):
                     pass
     for f in glob.glob(os.path.join(WORK, "*.py")):
         shutil.copy(f, os.path.join(OUT, "rebuild", os.path.basename(f)))
+    with open(os.path.join(OUT, "rebuild", "rebuild.sh"), "w", encoding="utf-8") as f:
+        f.write("""#!/bin/sh
+# sh rebuild.sh [INPUT_FOLDER]   rebuilds the delivered figure from figure_spec.json into ../_rebuilt
+cd "$(dirname "$0")" || exit 1
+mkdir -p ../_work ../_rebuilt && cp -f ../data/* ../_work/ 2>/dev/null
+KIT_INPUT="${1:-/input}" KIT_WORK="$PWD/../_work" KIT_OUTPUT="$PWD/../_rebuilt" python3 figkit.py build --spec ../figure_spec.json
+""")
     inv = lambda p: {"path": p, "format": os.path.splitext(p)[1][1:], "bytes": os.path.getsize(p), "sha256": fk_export.sha(p)}
     inputs = [{"file": rel(p), "sha256": fk_export.sha(p)} for p in walk_inputs()]
     ex = {"figure_png": dict(inv(png), dpi=dpi, pixels=pi.get("pixels")) if os.path.exists(png) else None,
@@ -950,7 +1021,7 @@ def cmd_build(a):
         "editable_source": {"path": prev_svg, "format": "layered SVG with live text and stable ids", "sha256": fk_export.sha(prev_svg),
                             "layers": facts["layers"], "specification": os.path.join(OUT, "figure_spec.json"),
                             "before_edit": os.path.join(OUT, "figure_before_edit.svg") if record else None,
-                            "rebuild_command": "cd <this folder>/rebuild && KIT_INPUT=<case input folder> KIT_WORK=../_work KIT_OUTPUT=../_rebuilt python3 figkit.py build --spec ../figure_spec.json  (needs no other files; relative paths)"},
+                            "rebuild_command": "sh /app/output/rebuild/rebuild.sh /input   (first argument = case input folder; writes ../_rebuilt)"},
         "export_artifact": ex, "content_map": cmap, "compliance_checks": checks, "exceptions": exceptions,
         "title": strip_markup(spec.get("title", "")), "caption": spec.get("caption", ""),
         "edit_record": record, "design_decisions": spec.get("decisions", []),
@@ -961,6 +1032,9 @@ def cmd_build(a):
     }
     write_result(res)
     say("BUILT status=%s  %.0f x %.0f mm  renderer=%s  %.1fs" % (status, w_mm, h_mm, exp["renderer"], time.time() - t0))
+    if spec.get("_starter") or os.environ.get("KIT_STARTER"):
+        say("STARTER draft built (not counted).")
+        return
     cnt_f = os.path.join(WORK, ".builds")
     try:
         st = jload(cnt_f)
@@ -996,6 +1070,14 @@ def cmd_build(a):
             say("ATTENTION %s: %s\n   -> %s" % (c["check"], c["detail"][:420], HINT.get(c["check"], "disclosed in exceptions; fix only if it is one spec edit")))
     jsave(cnt_f, st)
     for w_ in warn[:10]:
+        if ("flow continuity" in w_ or "sends '" in w_) and ks_elapsed() < 9:
+            unit_ = re.findall(r"'([^']+)'", w_)
+            try:
+                from kit_sources import rank_passages
+                pp_ = rank_passages((unit_[0] if unit_ else "") + " flows water enters leaves through outlet pumped from to", 2, 700)
+                w_ += "".join("\n       %s %s" % (q["id"], t[:330]) for q, t in pp_)
+            except Exception:
+                pass
         say("NOTE", w_)
     for p_ in problems[:10]:
         say("SOURCE", p_)
@@ -1013,9 +1095,9 @@ def cmd_build(a):
     if a.revise and spec.get("caption"):
         say("CHECK the caption still describes the edited figure (it is part of the delivery): %s" % strip_markup(str(spec["caption"]))[:420])
     want_edit = [ln.strip() for ln in must_lines() if re.search(r"(?i)^\s*(edit|revision)[\w.\[\]]*\s*:", ln) and "text" in ln[:40].lower()]
-    if want_edit and not st.get("revised") and (st["stuck"] >= 3 or ks_elapsed() > 6.5) and any(p.get("edges") or p["type"] != "diagram" for p in spec["panels"]):
+    if want_edit and not st.get("revised") and (st["stuck"] >= 3 or ks_elapsed() > 7) and any(p.get("edges") or p["type"] != "diagram" for p in spec["panels"]):
         say("EDIT NOW (%.1f min): the first version is complete enough and its open points are disclosed. The requested edit is NOT DONE YET; a missing edit costs far more than any polish. Append its lines / spec change, set edit_scope, `build --revise \"...\"`: %s" % (ks_elapsed(), want_edit[0][:500]))
-    elif st["stuck"] >= 3 or ks_elapsed() > (8 if st.get("revised") else 8.5):
+    elif st["stuck"] >= 3 or ks_elapsed() > (9 if st.get("revised") else 9.5):
         say("STOP RULE (%.1f min): complete; open points are disclosed. Run verify now and finish. No layout, font or wording polishing." % ks_elapsed())
     if not spec.get("title") or not spec.get("caption"):
         say("NEXT: add title and caption to /app/work/spec.json (they are still missing).")
@@ -1323,9 +1405,13 @@ def cmd_selftest(a):
     rec = jload(d2 + "/out/edit_record.json") if os.path.exists(d2 + "/out/edit_record.json") else {}
     ok2 = r.returncode == 0 and bool(rec) and run("verify").returncode == 0
     say("  edit of a line-file figure (--revise, verify)          %s" % ("ok" if ok2 else "FAILED " + r.stdout[-200:] + r.stderr[-200:]))
-    n[1] += 2
-    n[0] += ok + ok2
-    say("selftest passed %d of %d (5 negative tests, 2 workflow tests)" % tuple(n))
+    rb = subprocess.run(["sh", os.path.join(d2, "out", "rebuild", "rebuild.sh"), os.path.join(ex, "input")], capture_output=True, text=True, env=dict(os.environ))
+    a1, a2 = os.path.join(d2, "out", "figure.svg"), os.path.join(d2, "out", "_rebuilt", "figure.svg")
+    ok3 = rb.returncode == 0 and os.path.exists(a2) and svg_facts(open(a1, encoding="utf-8").read())["edges"] == svg_facts(open(a2, encoding="utf-8").read())["edges"]
+    say("  delivered rebuild.sh reproduces the relations           %s" % ("ok" if ok3 else "FAILED " + rb.stdout[-200:] + rb.stderr[-200:]))
+    n[1] += 3
+    n[0] += ok + ok2 + ok3
+    say("selftest passed %d of %d (5 negative tests, 3 workflow tests)" % tuple(n))
     say("selftest output (example only, not a formal result):", d + "/out")
     return 0 if n[0] == n[1] else 1
 
