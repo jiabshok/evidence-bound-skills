@@ -11,6 +11,7 @@ Structural rewrite: the paper's contribution becomes a sequence of one-claim pag
 
 ## Rules for this task
 
+- A conflict you find between sources (text P = 0.03 vs table P = 0.09, abstract n vs methods n) goes on the visible slide as a footnote with both values, not only into result.json. Results per method or model are named one by one with their values ("RF 0.59, NN 0.49"), not as an anonymous range. A value read off a figure is marked "read from Fig. 8, approx.". When you criticise a method, first `find` what the paper did (e.g. Bonferroni) and say exactly what is missing.
 - Before planning read abstract, last introduction paragraph, core methods, the results you will cite, captions/tables and limitations. Write the contribution in one sentence; every slide must serve it.
 - Required pages (merge or split to hit the exact count): title; problem and gap; what was done (flow); data/design with n; 2-4 key results, each with its figure/table/number; limits and what is not shown; take-home message.
 - Keep figure/table numbers correct: cite the figure next to the claim it supports and only if the caption says so. Distinguish main result, supporting detail and other people's results.

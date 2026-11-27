@@ -30,7 +30,7 @@ sys.path.insert(0, HERE)
 import kit_sources as ks  # noqa: E402
 from kit_sources import INPUT, WORK, OUT, jload, jsave, say, rel, walk_inputs, read_table, table_path, resolve_src, best_quote, write_result, check, trace_numbers, contract, case_id  # noqa: E402
 
-VERSION = "1.14.0"
+VERSION = "1.24.0"
 PPTX = os.path.join(OUT, "presentation.pptx")
 
 
@@ -299,7 +299,7 @@ def render_slide(prs, s, n, deck, dk, fonts, log):
         info["problems"].append("layout '%s' does not exist; used '%s'. Available: %s" % (s["layout"], layout.name, "; ".join(l.name for l in prs.slide_layouts)))
     fam_t, fam_b = fonts["major"], fonts["minor"]
     title = sub = None
-    bodies = []
+    bodies, nontext = [], []
     for sh in list(slide.placeholders):
         t = dk.ph_type(sh)
         if t in dk.TITLE_T and title is None:
@@ -308,6 +308,9 @@ def render_slide(prs, s, n, deck, dk, fonts, log):
             sub = sh
         elif t in dk.FOOT_T:
             pass
+        elif t in (dk.PP_PLACEHOLDER.PICTURE, dk.PP_PLACEHOLDER.CHART, dk.PP_PLACEHOLDER.TABLE, dk.PP_PLACEHOLDER.MEDIA_CLIP, dk.PP_PLACEHOLDER.ORG_CHART, dk.PP_PLACEHOLDER.BITMAP):
+            # a picture/chart/table placeholder cannot show text (bullets put there do not render); it only shapes the region, visuals are own shapes
+            nontext.append(sh)
         else:
             bodies.append(sh)
     bodies.sort(key=lambda b: (-(b.width or 0) * (b.height or 0)))
@@ -359,7 +362,7 @@ def render_slide(prs, s, n, deck, dk, fonts, log):
                 bodies.remove(target)
         elif target is None and lines:
             dk.add_textbox(slide, (W * .08, H * .62, W * .84, H * .16), lines, 18, name="Subtitle text")
-        left_over = bodies + ([sub] if sub is not None and target is not sub else [])
+        left_over = bodies + nontext + ([sub] if sub is not None and target is not sub else [])
         if target is not None and not lines:
             left_over.append(target)
         for sh in left_over:
@@ -375,13 +378,17 @@ def render_slide(prs, s, n, deck, dk, fonts, log):
             src_h = int((nl * 12 * 1.25 + 8) * 12700)
         bottom = foot_top - (src_h + int(H * .008) if src_all else int(H * .01))
         title_bottom = (title.top + title.height) if title is not None and title.top is not None else int(H * .17)
-        region_body = [b for b in bodies if (b.width or 0) > W * .2 and (b.height or 0) > H * .12]
-        x0 = min([b.left for b in region_body] or [int(W * .06)])
-        x1 = max([b.left + b.width for b in region_body] or [int(W * .94)])
-        y0 = min([b.top for b in region_body] or [title_bottom + int(H * .02)])
+        region_all = [b for b in bodies + nontext if (b.width or 0) > W * .2 and (b.height or 0) > H * .12]
+        x0 = min([b.left for b in region_all] or [int(W * .06)])
+        x1 = max([b.left + b.width for b in region_all] or [int(W * .94)])
+        y0 = min([b.top for b in region_all] or [title_bottom + int(H * .02)])
         y0 = max(y0, title_bottom)
-        y1 = min(bottom, max([b.top + b.height for b in region_body] or [bottom]))
-        if not region_body or y1 < y0 + H * .4:
+        y1 = min(bottom, max([b.top + b.height for b in region_all] or [bottom]))
+        region_body = [b for b in region_all if not any(b is q for q in nontext)]
+        for q in nontext:
+            if q._element.getparent() is not None:
+                q._element.getparent().remove(q._element)
+        if not region_all or y1 < y0 + H * .4:
             y1 = bottom
         take = s.get("takeaway")
         tk_box = None
@@ -460,13 +467,13 @@ def render_slide(prs, s, n, deck, dk, fonts, log):
                 half = (x1 - x0 - gapx) // 2
                 for n_, it in enumerate(sides):
                     bx = (x0 + n_ * (half + gapx), y0, half, y1 - y0)
-                    if n_ == 0 and pair:
+                    if n_ == 0 and pair and it:
                         set_box(pair[0], *bx)
                         put_body(pair[0], it)
                     elif it:
                         dk.add_textbox(slide, bx, it, 18, name="Column %d" % (n_ + 1))
                 for b in bodies:
-                    if not any(b is q for q in pair) and b._element.getparent() is not None:
+                    if not (pair and sides[0] and b is pair[0]) and b._element.getparent() is not None:
                         b._element.getparent().remove(b._element)
                 bodies, pair = [], []
                 info["problems"].append("layout has no second text placeholder; right column is a text box")
@@ -492,7 +499,7 @@ def render_slide(prs, s, n, deck, dk, fonts, log):
                     b._element.getparent().remove(b._element)
             bodies = []
         elif vis and bul:
-            two = sorted([b for b in region_body if b.height > H * .25], key=lambda b: b.left)
+            two = sorted([b for b in region_all if b.height > H * .25], key=lambda b: b.left)
             side = s.get("visual_side", "right")
             if side == "right" and vis == "table" and max([len(s["table"].get("header") or [])] + [len(r) for r in s["table"].get("rows") or [[]]]) > 5:
                 side = "bottom"
@@ -510,8 +517,12 @@ def render_slide(prs, s, n, deck, dk, fonts, log):
                 keep = [tb]
             elif len(two) >= 2 and two[1].left > two[0].left + two[0].width * .5:
                 tb, vb = (two[0], two[1]) if s.get("visual_side", "right") == "right" else (two[1], two[0])
+                if any(tb is q for q in nontext):   # geometry from the layout, text only into a text placeholder
+                    tb, vb = vb, tb
+                if any(tb is q for q in nontext):
+                    tb = None
                 gapx = int(W * .02)
-                share = float(s.get("visual_share") or (.56 if vis in ("chart", "image", "table") else .5))
+                share = float(s.get("visual_share") or (.62 if vis == "image" else .56 if vis in ("chart", "table") else .5))   # a figure needs the larger share to stay readable
                 if vis == "flow":
                     share = .5
                 tw = int((x1 - x0 - gapx) * (1 - share))
@@ -520,8 +531,11 @@ def render_slide(prs, s, n, deck, dk, fonts, log):
                     tbox, vbox = (x0, y0, tw, y1 - y0), (x0 + tw + gapx, y0, vw, y1 - y0)
                 else:
                     tbox, vbox = (x0 + vw + gapx, y0, tw, y1 - y0), (x0, y0, vw, y1 - y0)
-                set_box(tb, *tbox)
-                put_body(tb, bul)
+                if tb is not None:
+                    set_box(tb, *tbox)
+                    put_body(tb, bul)
+                else:
+                    dk.add_textbox(slide, tbox, bul, 18, name="Body text")
                 capped(vbox)
                 keep = [tb]
             else:
@@ -532,7 +546,7 @@ def render_slide(prs, s, n, deck, dk, fonts, log):
                     vbox = (x0, y0, x1 - x0, int((y1 - y0) * .36))
                     vh = vbox[3]
                 if vis != "stats" and vis != "flow":
-                    tw = int((x1 - x0) * .42)
+                    tw = int((x1 - x0) * (.38 if vis == "image" else .42))
                     vbox = (x0 + tw + int(W * .02), y0, x1 - x0 - tw - int(W * .02), y1 - y0)
                     tbox = (x0, y0, tw, y1 - y0)
                 else:
@@ -555,7 +569,11 @@ def render_slide(prs, s, n, deck, dk, fonts, log):
             if region_body and bul:
                 tb = region_body[0]
                 if tb.top + tb.height > y1 or tb.top < y0:
-                    set_box(tb, tb.left, max(tb.top, y0), tb.width, y1 - max(tb.top, y0))
+                    top_ = max(tb.top, y0)
+                    if y1 - top_ < H * .1:   # a low caption-style body under a takeaway: use the whole content region
+                        set_box(tb, x0, y0, x1 - x0, y1 - y0)
+                    else:
+                        set_box(tb, tb.left, top_, tb.width, y1 - top_)
                 put_body(tb, bul)
                 for b in bodies:
                     if b is not tb:
@@ -775,6 +793,7 @@ def region_of(slide, prs, dk, boxes):
     title = next((s for s in slide.placeholders if dk.ph_type(s) in dk.TITLE_T), None)
     top = int((title.top + title.height) if title is not None and title.top is not None else H * .18) + int(H * .015)
     bodies = [s for s in slide.placeholders if dk.ph_type(s) not in dk.TITLE_T | dk.FOOT_T and s.has_text_frame and s.text_frame.text.strip()]
+    bodies += [s for s in slide.shapes if not s.is_placeholder and s.name == "Body text" and s.has_text_frame and s.text_frame.text.strip()]
     foot = min([s.top for s in L.placeholders if dk.ph_type(s) in dk.FOOT_T and s.top and s.top > H * .7] or [int(H * .93)])
     srcl = [s for s in slide.shapes if s.name == "Source line"]
     bottom = min([foot] + [s.top for s in srcl]) - int(H * .01)
@@ -1004,7 +1023,7 @@ def cmd_edit(a):
             elif kind in ("set_notes", "append_notes"):
                 s = get(op["slide"])
                 old = dk.notes_text(s)
-                dk.set_notes(s, (old + "\n" if kind == "append_notes" and old else "") + str(op["text"]))
+                dk.set_notes(s, str(op["text"]), keep=(old + "\n" if kind == "append_notes" and old else ""))
                 touched.add(("notes", s.slide_id))
             elif kind == "set_cell":
                 s = get(op["slide"])
@@ -1110,9 +1129,15 @@ def cmd_edit(a):
 
 
 def cover_exempt():
-    """Does the order say the cover carries no footer / number?"""
+    """Does the order say the cover carries no footer / number? (the exemption must concern footer or numbering in the same clause)"""
     t = " ".join(ks.must_lines()).lower()
-    return bool(re.search(r"(except|exempt|excluding|but not|not on|no footer on|other than|besides|apart from)[^.;|]{0,40}(cover|title slide|first slide)|(cover|title slide)[^.;|]{0,40}(no footer|without footer|no number|exempt|excluded)|\u9664\u5c01\u9762|\u5c01\u9762\u9664\u5916|\u5c01\u9762\u4e0d", t))
+    ex = re.compile(r"(except|exempt|excluding|but not|not on|no footer on|other than|besides|apart from)[^.;|]{0,40}(cover|title slide|first slide|\u5c01\u9762|\u9996\u9875)"
+                    r"|(cover|title slide|\u5c01\u9762|\u9996\u9875)[^.;|]{0,40}(no footer|without footer|no number|exempt|excluded|\u9664\u5916|\u4e0d)"
+                    r"|\u9664(\u5c01\u9762|\u9996\u9875)")
+    for cl in re.split(r"[.;|\n\u3002\uff1b]|(?=case\.)|(?=  )", t):
+        if re.search(r"footer|page.?num|slide.?num|number|\u9875\u811a|\u9875\u7801|\u7f16\u53f7|\u9875\u53f7", cl) and ex.search(cl):
+            return True
+    return False
 
 
 def natives_of(dk, slide):
@@ -1565,6 +1590,30 @@ def finish(d, warn, log, mode, master_before, tpl, t0, start=None, edit_log=None
     tot = sum(float(s.get("minutes") or 0) for s in slides)
     if slides and tot:
         checks.append(check("time_plan", not rm or abs(tot - rm) <= .15 * rm + .5, "planned %.1f min%s" % (tot, "" if not rm else " of %.0f" % rm), "sum of per-slide minutes"))
+    try:   # decimals the order prescribes ("one decimal for percentages")
+        ml_ = " ".join(ks.must_lines()).lower()
+        dm_ = re.search(r"\b(one|two|three|1|2|3)\s+decimals?\s+(?:place\s+)?(?:for|in|on)\s+(?:all\s+)?percent", ml_)
+        if dm_:
+            want_ = {"one": 1, "two": 2, "three": 3}.get(dm_.group(1), None) or int(dm_.group(1))
+            bad_, orig_ = [], set()
+            PCT_ = r"(?<![\d.])(\d+(?:\.(\d+))?)\s?%"
+            if mode in ("edit", "adapt"):   # values carried over from the starting deck keep their form; only new ones are checked
+                try:
+                    sf_ = start or starting_file()
+                    if sf_:
+                        orig_ = {m_.group(1) for _, t_ in collect_text(dk, dk.Presentation(sf_)) for m_ in re.finditer(PCT_, t_)}
+                except Exception:
+                    orig_ = set()
+            for n_, t_ in collect_text(dk, prs):
+                for m_ in re.finditer(PCT_, t_):
+                    if m_.group(1) not in orig_ and len(m_.group(2) or "") != want_:
+                        bad_.append("slide %d: %s" % (n_, m_.group(0)))
+            if True:
+                checks.append(check("number_format", not bad_, "every percentage has %d decimal(s) as the order asks" % want_ if not bad_ else "percentages not at %d decimal(s): %s" % (want_, "; ".join(dict.fromkeys(bad_))[:400]), "percent tokens on all slides vs the order's decimal rule"))
+                if bad_:
+                    say("ATTENTION number_format: the order asks for %d decimal(s) in percentages; fix %s (or say in an exception why a carried-over value keeps its form)" % (want_, "; ".join(list(dict.fromkeys(bad_))[:6])))
+    except Exception:
+        pass
     if mode == "build":
         checks.append(check("numbers_traceable", not untraced, "every number on slides occurs in its cited source" if not untraced else "not verbatim in cited source (fix, or state the derivation): %s" % json.dumps(untraced[:8], ensure_ascii=False), "numeric tokens of slide text searched in cited passages/table rows"))
         checks.append(check("source_coverage", not unsourced and not problems, "all %d content slides carry resolvable sources" % sum(1 for s in slides if s.get("kind") not in ("title", "section")) if not unsourced and not problems else "unsourced slides %s; problems %s" % (unsourced, problems[:5]), "source ids looked up in indexed input"))
@@ -1653,7 +1702,7 @@ def finish(d, warn, log, mode, master_before, tpl, t0, start=None, edit_log=None
             if d.get("omitted"):
                 f.write("## Left out on purpose\n\n" + "".join("- %s: %s\n" % (o.get("item", ""), o.get("reason", "")) if isinstance(o, dict) else "- %s\n" % o for o in d["omitted"]) + "\n")
             for n, s in enumerate(slides, 1):
-                f.write("## %d. %s (%s%s)\n\nSources: %s\n\n%s\n\n" % (n, dk.plain(s.get("title", "")), s.get("role", ""), ", %s min" % s["minutes"] if s.get("minutes") else "", s.get("src") or s.get("cite") or "-", s.get("notes", "") if not isinstance(s.get("notes"), list) else "\n".join(s["notes"])))
+                f.write("## %d. %s (%s%s)\n\nSources: %s\n\n%s\n\n" % (n, dk.plain(s.get("title", "")), s.get("role", ""), ", %s min" % s["minutes"] if s.get("minutes") else "", s.get("src") or s.get("cite") or "-", dk.notes_plain(s.get("notes", "") if not isinstance(s.get("notes"), list) else "\n".join(map(str, s["notes"])))))
             if d.get("qa"):
                 f.write("## Prepared questions\n\n")
                 for x in d["qa"]:

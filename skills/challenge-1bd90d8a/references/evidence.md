@@ -7,14 +7,14 @@ These are **local practice runs**, not the official cases or scores. Each practi
 | condition | runs | runs with deliverables | local effect score /40, mean (range) | seconds, mean (range) | model requests, mean (range) |
 |---|---|---|---|---|---|
 | without Skill | 1 | 1 | 34 | 570 | 29 |
-| with this Skill (v1.7-1.14) | 4 | 4 | 34.0 (33-36) | 447.0 (179-586) | 28.0 (21-36) |
+| with this Skill (v1.7-1.24) | 5 | 5 | 34.2 (33-36) | 438.6 (179-586) | 27.2 (21-36) |
 
 ### Practice case: bee tongue length data, chart + edit
 
 | condition | runs | runs with deliverables | local effect score /40, mean (range) | seconds, mean (range) | model requests, mean (range) |
 |---|---|---|---|---|---|
 | without Skill | 1 | 1 | 37 | 297 | 15 |
-| with this Skill (v1.7-1.14) | 4 | 4 | 36.5 (36-37) | 525.0 (317-785) | 34.8 (26-40) |
+| with this Skill (v1.7-1.24) | 11 | 11 | 36.1 (35-37) | 561.1 (317-785) | 33.2 (24-40) |
 
 ## What the Skill adds that the agent did not do on its own
 

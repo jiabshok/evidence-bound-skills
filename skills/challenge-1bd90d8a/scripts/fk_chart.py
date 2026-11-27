@@ -311,10 +311,23 @@ def draw_chart(panel, X, Y, W, H, read, fs=15, pid="chart"):
 
     # legend first (top strip)
     leg_h = 0
-    if gk and panel.get("legend", True) and not same:
+    grp_leg = bool(gk and panel.get("legend", True) and not same)
+    ov_leg = [o for o in (panel.get("overlays") or []) if isinstance(o, dict) and (o.get("type") or o.get("chart")) in ("ring", "points") and o.get("label")]
+    if grp_leg or ov_leg:
         lx, ly, rowh = X + 4, Y + 10, fs * 1.35
         s.append('<g id="%s-legend" data-role="legend">' % pid)
-        for i, g in enumerate(groups):
+        for o in ov_leg:   # marker overlays (rings, extra points) get their own key entry beside the groups
+            lab, col_ = str(o["label"]), o.get("color") or INK
+            w = width(lab, fs * 0.9) + 38
+            if lx + w > X + W and lx > X + 4:
+                lx, ly = X + 4, ly + rowh
+            if (o.get("type") or o.get("chart")) == "ring":
+                s.append('<circle cx="%.2f" cy="%.2f" r="5.5" fill="none" stroke="%s" stroke-width="1.8"/>' % (lx + 11, ly, col_))
+            else:
+                s.append('<circle cx="%.2f" cy="%.2f" r="3" fill="%s" fill-opacity="0.6"/>' % (lx + 11, ly, col_))
+            s.append(svg_text(lx + 27, ly, [lab], fs * 0.9, "start"))
+            lx += w
+        for i, g in enumerate(groups if grp_leg else []):
             lab = labels.get(str(g), str(g))
             w = width(lab, fs * 0.9) + 38
             if lx + w > X + W and lx > X + 4:

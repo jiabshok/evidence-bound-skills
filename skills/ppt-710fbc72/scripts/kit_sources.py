@@ -882,7 +882,8 @@ def auto_match(text, k=1, floor=.5):
         hit = sum(1 for w in words if w in low)
         nh = len(nums & have)
         score = (hit + 2.0 * nh) / (len(words) + 2.0 * len(nums))
-        if score < floor or hit < 2 or (nums and nh < len(nums)) or (not nums and (hit < 4 or hit < .6 * len(words))):
+        min_hit = 0 if len(nums) >= 3 and nh == len(nums) else 2  # three or more numbers all present: the numbers carry the match
+        if score < floor or hit < min_hit or (nums and nh < len(nums)) or (not nums and (hit < 4 or hit < .6 * len(words))):
             continue
         quote = best_quote(text, q["text"])
         qn = set(numbers(quote))
@@ -924,6 +925,7 @@ _ALLNUM = None
 
 
 NULLISH = re.compile(r"(?i)\b(no effect|no difference|no change|did not change|do(?:es)? not change|unchanged|not correlated|uncorrelated|no correlation|no association|equal to|the same as|identical (?:to|in)|had no influence|does not affect|did not affect)\b")
+NULLISH2 = re.compile(r"(?i)\b(did not (?:increase|decrease|raise|reduce|lower|alter|differ|improve|worsen)|no (?:inverse |direct )?(?:relationship|link|relation)|not (?:associated|related) (?:with|to))\b")
 CAUSAL = re.compile(r"(?i)\b(drives?|drove|driven by|causes?|caused by|leads? to|led to|results? in|due to|because of|proves?|proven|prevents?|determines?|improves?|improved by|is responsible for)\b")
 
 
@@ -933,6 +935,9 @@ def lint_text(text):
     m = NULLISH.search(text)
     if m and not re.search(r"(?i)signific|detect|statistic|not reported", text):
         out.append("'%s': absence of significance is not absence of effect - say 'no significant ... detected' (with p) unless the source shows equivalence" % m.group(0))
+    m2 = NULLISH2.search(text) if not m else None
+    if m2 and not re.search(r"(?i)signific|detect|statistic|not reported|fell|rose|declin|\d+(?:\.\d+)?\s*%", text):
+        out.append("'%s': if this sums up a test that was not significant, say 'no significant ... detected' (with p); if the source reports a measured change or no test, keep the source's wording" % m2.group(0))
     m = CAUSAL.search(text)
     if m:
         out.append("'%s': keep only if the source establishes causation for exactly this design; otherwise use raised/lowered with, was associated with, tracked" % m.group(0))
@@ -1373,7 +1378,17 @@ def best_quote(label, rec_text, must=()):
                 sc += 4
         if sc > score:
             best, score = sent, sc
-    return best[:240]
+    if len(best) <= 240:
+        return best
+    # a long sentence: show the 240-character stretch that carries the label's numbers and words, not just its start
+    nums_ = [w for w in words if re.search(r"\d", w)]
+    top, at = -1, 0
+    for st in range(0, len(best) - 200, 30):
+        win = best[st:st + 240].lower()
+        sc = sum(3 for w in nums_ if re.search(r"(?<![\d.])" + re.escape(w) + r"(?![\d])", win)) + sum(1 for w in words if w in win)
+        if sc > top:
+            top, at = sc, st
+    return ("\u2026" if at else "") + best[at:at + 240] + ("\u2026" if at + 240 < len(best) else "")
 
 
 

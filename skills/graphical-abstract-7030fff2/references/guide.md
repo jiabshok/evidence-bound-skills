@@ -18,7 +18,7 @@ KIT_INPUT=./input KIT_WORK=./work KIT_OUTPUT=./out python3 scripts/figkit.py bri
 
 ## 3. 依赖
 
-引擎版本 figkit 1.14.0（写入 `result.json` 的 `provenance.engine`）。安装：把整个目录复制到 Skill 位置（评测为 `/skills/weekly-skill`），无需编译或联网。
+引擎版本 figkit 1.24.0（写入 `result.json` 的 `provenance.engine`）。安装：把整个目录复制到 Skill 位置（评测为 `/skills/weekly-skill`），无需编译或联网。
 
 Python 3.9+ 标准库即可生成 SVG 和 `result.json`。Pillow 用于真实字宽和像素检查。导出按顺序尝试 Playwright Chromium、CairoSVG、rsvg-convert、Inkscape、LibreOffice，任一可用即可，失败原因写入 `exceptions`。`pdftotext/pdfinfo/pdffonts`（poppler）用于读 PDF 和核对导出件。图标与配色为本项目自绘；色板取自 Okabe–Ito 公开色盲安全色。
 

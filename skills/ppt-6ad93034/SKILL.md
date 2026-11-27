@@ -11,6 +11,7 @@ Mode from the work order: starting deck plus instructions -> `edit`; no starting
 
 ## Rules for this task
 
+- A conflict you find between sources (text P = 0.03 vs table P = 0.09, abstract n vs methods n) goes on the visible slide as a footnote with both values, not only into result.json. Results per method or model are named one by one with their values ("RF 0.59, NN 0.49"), not as an anonymous range. A value read off a figure is marked "read from Fig. 8, approx.". When you criticise a method, first `find` what the paper did (e.g. Bonferroni) and say exactly what is missing.
 - Turn every instruction into ops and tick them off; give each op `edit` (the instruction's id), `src` and `reason`. Read affected slides first: `slide N --start`.
 - Narrow scope: do not restyle, reword or correct anything not requested. A protected slide is never touched, even when it is wrong or a check complains about it: write it to `unresolved`.
 - A changed number changes everywhere it describes the same quantity on slides you may edit: title, text, table, chart, notes, source line. Look for the old value on all slides; one left on a protected slide is an `unresolved` conflict with both values.

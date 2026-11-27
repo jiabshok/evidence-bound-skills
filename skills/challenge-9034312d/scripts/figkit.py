@@ -43,7 +43,7 @@ from kit_sources import (INPUT, WORK, OUT, CONTRACT, jload, jsave, say, walk_inp
 
 from kit_sources import elapsed as ks_elapsed  # noqa: E402
 
-VERSION = "1.14.0"
+VERSION = "1.24.0"
 
 # --- spec validation -------------------------------------------------------------
 ALIAS_T = {"dimerization": "dimerisation", "dimerises": "dimerisation", "dimerizes": "dimerisation", "heterodimerisation": "dimerisation", "heterodimerization": "dimerisation", "homodimerisation": "dimerisation", "complex_formation": "dimerisation", "dimer": "dimerisation",
@@ -234,9 +234,34 @@ def validate(spec):
             for k in ("xlabel", "ylabel"):
                 if not p.get(k) and p["chart"] != "heatmap":
                     warn.append("panel %s: '%s' missing - give quantity and unit" % (pid, k))
+            for k_, o_ in enumerate(p.get("overlays") or []):
+                if isinstance(o_, dict) and not (o_.get("src") or o_.get("data")):
+                    warn.append("panel %s overlay %d (%s%s): no src - give the passage or table id that reports it, or drop it" % (pid, k_ + 1, o_.get("type", "?"), (" '%s'" % o_["label"]) if o_.get("label") else ""))
         else:
             if not p.get("items"):
                 err.append("panel %s: text panel needs 'items'" % pid)
+    SLASHED_ = re.compile(r"\d+(?:\.\d+)?\s*/\s*\d+(?:\.\d+)?\s*/\s*\d+(?:\.\d+)?\s*(?:±|\+/-)\s*\d+(?:\.\d+)?\s*/\s*\d")
+    for p in spec["panels"]:
+        bits = [str(p.get(k) or "") for k in ("note", "title")] + [str(x.get("text", x) if isinstance(x, dict) else x) for x in (p.get("items") or [])]
+        bits += [str(n.get(k) or "") for n in (p.get("nodes") or []) if isinstance(n, dict) for k in ("label", "note")]
+        ERRK_ = re.compile(r"(?i)(?:±|\+/-)\s*(SEM|SE|SD)\b|mean\s*(?:±|\+/-)\s*(SEM|SE|SD)\b|\b(standard error|standard deviation)\b")
+        srcs_ = [x.get("src") for x in (p.get("items") or []) if isinstance(x, dict) and x.get("src")] + ([p.get("src")] if p.get("src") else [])
+        for b in bits:
+            ek_ = ERRK_.search(b)
+            if ek_ and srcs_ and not p.get("stat"):
+                try:
+                    txt_ = " ".join(str(q.get("text") or q.get("quote") or "") for s_ in srcs_ for q in resolve_src(s_, [], p.get("id")))
+                except Exception:
+                    txt_ = ""
+                k_ = (ek_.group(1) or ek_.group(2) or ek_.group(3) or "").lower()
+                pat_ = r"\bS\.?D\b|standard deviation" if k_ in ("sd", "standard deviation") else r"\bS\.?E\.?M?\b|standard error"
+                if txt_ and not re.search(pat_, txt_, re.I):
+                    warn.append("panel %s: '%s' names the spread as %s, but the cited passages do not say so - write '±' with 'type not stated in the text' or cite the legend/methods passage that names it" % (p.get("id"), b[:80], ek_.group(0)))
+                    break
+        for b in bits:
+            if SLASHED_.search(b):
+                warn.append("panel %s: '%s' joins several groups' values with '/': write one value ± spread per group with its group name (\"W0 5.76 ± 0.63\"), and give each p value its comparison" % (p.get("id"), b[:90]))
+                break
     return err, warn
 
 
@@ -653,6 +678,59 @@ def edit_pairs(text):
     return [(o, n) for o, n in out if 0 < len(o.split()) <= 4 and 0 < len(n.split()) <= 4 and o.lower() != n.lower()]
 
 
+COLOR_ = {"blue": "#1F5FA8", "brown": "#7B4A1E", "yellow": "#C9A000", "gold": "#B8860B", "orange": "#D2691E", "red": "#B3261E", "green": "#2E7D32",
+          "grey": "#7A7F87", "gray": "#7A7F87", "black": "#1B1F24", "purple": "#6C4AA5", "teal": "#2E8B7A", "olive": "#70773A", "cyan": "#1C8FA8", "pink": "#C2185B"}
+FLOWTYPE_ = [(r"measure|data|signal|sensor|analy[sz]er|monitor", ("data", "signal")), (r"control", ("control",)),
+             (r"light|energy|heat|power|electric|illumin", ("energy",)), (r"\bair\b|gas|aeration|co2|oxygen", ("gas",)),
+             (r"solid|discharge|waste|sludge|drain|effluent|exhaust", ("waste",)), (r"water|liquid|medium|flow|stream", ("liquid",))]
+
+
+def order_encoding(spec):
+    """Line encodings the work order prescribes (e.g. 'water': 'solid blue with arrowheads') override the engine's default edge styles.
+    Returns (applied, missing): applied = [(order key, edge types, style)], missing = encoded categories with no drawn line."""
+    import kit_sources as ks_
+    enc = {}
+    for w in ks_.workorders():
+        try:
+            d = jload(w)
+        except Exception:
+            continue
+
+        def walk(o):
+            if isinstance(o, dict):
+                vals = [v for v in o.values() if isinstance(v, str)]
+                if len(vals) >= 2 and sum(bool(re.search(r"(?i)\b(%s)\b" % "|".join(COLOR_), v)) or bool(re.search(r"(?i)dash|dott|solid", v)) for v in vals) >= 2:
+                    for k, v in o.items():
+                        if isinstance(v, str) and len(v) < 90:
+                            enc[str(k)] = v
+                for v in o.values():
+                    walk(v)
+            elif isinstance(o, list):
+                for v in o:
+                    walk(v)
+        walk(d)
+    if not enc:
+        return [], []
+    used = {str(e.get("type")) for p in spec.get("panels", []) for e in (p.get("edges") or []) if isinstance(e, dict)}
+    applied, missing = [], []
+    for k, v in enc.items():
+        types = next((t for rx, t in FLOWTYPE_ if re.search("(?i)" + rx, k)), None)
+        if not types:
+            continue
+        col = next((COLOR_[c] for c in re.findall(r"(?i)[a-z]+", v.lower()) if c in COLOR_), None)
+        dash = "8 4" if re.search(r"(?i)dash", v) else "2 3" if re.search(r"(?i)dott", v) else "" if re.search(r"(?i)solid", v) else None
+        for t in types:
+            if t not in fk_draw.EDGES:
+                continue
+            c0, d0, h0, w0, l0 = fk_draw.EDGES[t]
+            w1 = 1.4 if re.search(r"(?i)thin", v) else w0
+            fk_draw.EDGES[t] = (col or c0, d0 if dash is None else dash, h0, w1, k[:1].upper() + k[1:])
+        applied.append((k, types, v))
+        if not used & set(types):
+            missing.append((k, v))
+    return applied, missing
+
+
 def cmd_build(a):
     t0 = time.time()
     os.makedirs(OUT, exist_ok=True)
@@ -705,6 +783,14 @@ def cmd_build(a):
         spec.pop("layout")   # the list of panels changed: let the engine arrange them
     err, warn = validate(spec)
     err = lp + err
+    try:
+        enc_applied, enc_missing = order_encoding(spec)
+        if enc_applied:
+            spec.setdefault("_order_encoding", [{"order_key": k, "edge_types": list(t), "style": v} for k, t, v in enc_applied])
+        for k_, v_ in enc_missing:
+            warn.append("ORDER ENCODING: the work order defines '%s' lines (%s) but no such line is drawn - find the source sentence (e.g. lighting, aeration, heating, sampling to analyser) and draw it, or record why not in unresolved" % (k_, v_))
+    except Exception as exc_:
+        warn.append("order encoding not applied: %s" % str(exc_)[:120])
     try:
         import fk_flow
         want_ = fk_flow.order_facts()[1]
@@ -928,7 +1014,7 @@ def cmd_build(a):
     checks.append(check("layout_collisions", not bad, "no node overlap, no connector through an unrelated node, no label collision; %d perpendicular crossings" % geo["crossings"] if not bad else json.dumps(bad, ensure_ascii=False)[:600],
                         "box/segment intersection on final geometry"))
     minpt = min(facts["sizes"] or [0]) / fk_draw.MM / meta["scale"] / 25.4 * 72
-    checks.append(check("minimum_type_size", minpt >= float(cv.get("min_font_pt") or 5.0) - .05, "smallest live text %.2f pt at final width %.0f mm; required %s pt%s" % (minpt, w_mm, cv.get("min_font_pt") or "5 (default)", "; sub/superscripts are 0.72 of their line" if "_{" in json.dumps(plain) or "^{" in json.dumps(plain) else ""), "SVG font sizes at physical scale"))
+    checks.append(check("minimum_type_size", minpt >= float(cv.get("min_font_pt") or 5.0) - .05, "smallest live text %.2f pt at final width %.0f mm; required %s pt%s" % (minpt, w_mm, cv.get("min_font_pt") or "5 (default)", "; sub/superscripts (0.72 of their line, never below the minimum) are included in this measurement" if "_{" in json.dumps(plain) or "^{" in json.dumps(plain) else ""), "SVG font sizes at physical scale"))
     checks.append(check("editable_vector_structure", not facts["dup"] and facts["raster"] == 0,
                         "%d live text objects, %d unique ids, %d raster images; layers: %s" % (facts["texts"], len(facts["ids"]), facts["raster"], ", ".join(facts["layers"])), "XML parse"))
     pi, di = fk_export.inspect_png(png), fk_export.inspect_pdf(pdf, [strip_markup(r["label"]) for r in reg if r["type"] in ("entity", "panel-title", "title")])

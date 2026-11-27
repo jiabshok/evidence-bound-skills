@@ -432,6 +432,10 @@ def add_textbox(slide, box, items, size, align=None, color=None, bold=None, anch
         p = tf.paragraphs[0] if k == 0 else tf.add_paragraph()
         if align is not None:
             p.alignment = align
+        try:
+            p.level = max(0, min(4, int(it.get("level") or 0)))
+        except (TypeError, ValueError):
+            pass
         if it.get("runs"):
             put_source_runs(p, it["runs"], size)
         else:
@@ -447,7 +451,7 @@ def add_table(slide, box, header, rows, family, highlight=None, name="Table", ra
     allr = ([header] if header else []) + rows
     plain_ = (lambda t: t) if raw else plain
     cells = [[plain_(str(r[c])) if c < len(r) else "" for c in range(nc)] for r in allr]
-    size = 16.0
+    size = 20.0 if nr <= 10 else 18.0 if nr <= 14 else 16.0   # start large and shrink only as far as the box needs: small tables use the space
     while True:
         need = [max(max(text_w(tok, size, True, family) for tok in (cells[r][c].split() or [""])) for r in range(nr)) + 15 for c in range(nc)]
         full = [max(text_w(cells[r][c], size, r == 0, family) for r in range(nr)) + 16 for c in range(nc)]
@@ -674,7 +678,7 @@ def copy_chart(slide, sh, box):
             ext.set(R + "id", part.relate_to(x, src.rels[rid].reltype))
         else:
             part._element.remove(ext)
-    readable_chart(part._element)
+    readable_chart(part._element, 1400 if box[2] > 4.6 * 914400 and box[3] > 2.6 * 914400 else 1200)   # same floor as charts the engine builds
     rid = slide.part.relate_to(part, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart")
     el = copy.deepcopy(sh._element)
     for c in el.iter(qn("c:chart")):
@@ -946,7 +950,25 @@ def notes_text(slide):
     return tf.text if tf is not None else ""
 
 
-def set_notes(slide, text):
+SUP_ = str.maketrans("0123456789-\u2212+", "\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079\u207b\u207b\u207a")
+SUB_ = str.maketrans("0123456789", "\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089")
+
+
+def notes_plain(t):
+    """Speaker notes are plain text: same unit tidy as the slides (ug -> µg, uV2 -> µV², degC -> °C), markup turned into Unicode super/subscripts."""
+    t = tidy_markup(t)
+    t = re.sub(r"\*\*([^*]+)\*\*", r"\1", t)
+    t = re.sub(r"\^\{([0-9+\-\u2212]+)\}", lambda m: m.group(1).translate(SUP_), t)
+    t = re.sub(r"_\{([0-9]+)\}", lambda m: m.group(1).translate(SUB_), t)
+    return re.sub(r"[_^]\{([^}]*)\}", r"\1", t)
+
+
+def set_notes(slide, text, keep=""):
+    """keep: existing notes text that is carried over unchanged in front of the new text."""
     tf = slide.notes_slide.notes_text_frame
     if tf is not None:
+        try:
+            text = keep + notes_plain(text)
+        except Exception:
+            text = keep + text
         tf.text = text

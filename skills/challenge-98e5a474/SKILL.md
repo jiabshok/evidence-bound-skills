@@ -13,6 +13,7 @@ Use for a relationship schematic, conceptual framework or structure diagram, or 
 
 ## Rules for this task
 
+- The model's fit statistics (e.g. Fisher's C, df, p) and its sample size (n and which analyses use it) are visible on the figure. When the prose and the table disagree (counts of significant paths, a p value, the sign of an estimate versus its test statistic), the figure follows the table and a visible footnote gives both versions.
 - Must-show facts must be readable ON the figure (node note, edge label, text item or footnote), each with its comparator, unit and n; caption or result.json alone does not count. They stay visible in the edited version too. State factor levels and replicates in words ("control / treated, n = 3 per cell"), not as "2x3x3". A null result the order names (no interaction, n.s.) is written out.
 - Entities first (with level: system > part > component), then relations in small batches (source, type, target, condition, passage); what the source excludes goes to `omitted`. Groups express containment or stage; put a node in a group only if the source says it belongs there.
 - Distinguish in the edge `type`: containment (`contains`), order (`flow`), dependency (`dependency`), causal effect (`causal`, only if the source establishes it), fitted model path (`path`, with the estimate as label and `"edge_width"` when strength must be shown), undirected/correlated `association`, `comparison`, feedback (`return`), `evidence`. The legend is generated from the types you use.

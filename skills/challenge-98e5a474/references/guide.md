@@ -69,7 +69,7 @@ must-show 是否都在图上；每个箭头能否指到一句原文；单位、n
 
 ## 9. 复用与维护
 
-引擎版本 1.14.0（`figkit.py` 的 `VERSION`，写入 `result.json.provenance`）。
+引擎版本 1.24.0（`figkit.py` 的 `VERSION`，写入 `result.json.provenance`）。
 引擎、规格格式、图标集、合成示例均可单独复用（MIT）。新增节点或关系类型在 `fk_draw.py` 的 `KINDS`/`EDGES` 各加一行即可；新增图表类型在 `fk_chart.py` 实现绘制，并在 `read_back` 补对应的反算。修改后先跑 `selftest`。
 
 ## 10. 最小示例：表格全部连边 → 删边编辑（虚构数据，仅示意接口）
