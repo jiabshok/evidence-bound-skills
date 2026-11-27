@@ -7,7 +7,7 @@ These are **local practice runs**, not the official cases or scores. Each practi
 | condition | runs | runs with deliverables | local effect score /40, mean (range) | seconds, mean (range) | model requests, mean (range) |
 |---|---|---|---|---|---|
 | without Skill | 1 | 1 | 33 | 376 | 35 |
-| with this Skill (v1.7-1.24) | 12 | 12 | 34.8 (33-37) | 575.2 (425-811) | 28.4 (19-35) |
+| with this Skill (v1.7-1.26) | 17 | 17 | 34.8 (33-37) | 582.5 (425-811) | 28.4 (19-35) |
 
 ## What the Skill adds that the agent did not do on its own
 

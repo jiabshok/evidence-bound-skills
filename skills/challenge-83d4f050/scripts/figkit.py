@@ -43,7 +43,7 @@ from kit_sources import (INPUT, WORK, OUT, CONTRACT, jload, jsave, say, walk_inp
 
 from kit_sources import elapsed as ks_elapsed  # noqa: E402
 
-VERSION = "1.24.0"
+VERSION = "1.26.0"
 
 # --- spec validation -------------------------------------------------------------
 ALIAS_T = {"dimerization": "dimerisation", "dimerises": "dimerisation", "dimerizes": "dimerisation", "heterodimerisation": "dimerisation", "heterodimerization": "dimerisation", "homodimerisation": "dimerisation", "complex_formation": "dimerisation", "dimer": "dimerisation",
@@ -187,6 +187,17 @@ def validate(spec):
                 ends_ = [n for n in steps_ if n is not last_ and not any(e["from"] == n["id"] for e in p["edges"]) and any(e["to"] == n["id"] for e in p["edges"])]
                 if ends_:
                     warn.append("panel %s: route stops at %s - does it continue (e.g. to the common sampling) in the source?" % (pid, ", ".join("'%s. %s'" % (n["step"], n["label"]) for n in ends_[:4])))
+            if len(steps_) > 4:   # a closed / recirculating system the order names keeps its loop in the route too
+                try:
+                    from kit_sources import must_lines as ml_
+                    loop_ = any(re.search(r"(?i)closed (?:water )?loop|recycl|recircul", x) for x in ml_())
+                except Exception:
+                    loop_ = False
+                stv_ = {n["id"]: float(re.match(r"\d+(\.\d+)?", str(n["step"])).group(0)) for n in steps_}
+                back_ = any(e["from"] in stv_ and e["to"] in stv_ and stv_[e["to"]] < stv_[e["from"]] for e in p["edges"])
+                said_ = any(re.search(r"(?i)recycl|recircul|return|closed loop", str(x.get("label") or "") + " " + str(x.get("note") or "")) for x in list(nodes) + list(p["edges"]))
+                if loop_ and not back_ and not said_:
+                    warn.append("panel %s: the order names a closed / recirculating loop, but this numbered route never shows it - add the recirculation (a return edge labelled 'recirculated', or a step that says the water returns to the tank, with its source)" % pid)
             for n in nodes:
                 kids = [e["to"] for e in p["edges"] if e["from"] == n["id"]]
                 if n["kind"] == "decision" and len(kids) > 1:
@@ -731,6 +742,52 @@ def order_encoding(spec):
     return applied, missing
 
 
+PROBE_W = r"(?:siRNAs?|shRNAs?|si-?RNA|knock[- ]?downs?|knock[- ]?outs?|KO|-/-|deletion|depletion|silencing|null|loss|inhibition|blockade)"
+DOWN_W = re.compile(r"(?i)(?:\bdown\b|\u2193|\bdecrease[sd]?\b|\blower(?:s|ed)?\b|\breduc\w*|\bless\b|\bloss\b|\blost\b|\babolish\w*|\battenuat\w*|\bimpair\w*|\bblunt\w*|\bprevent\w*|\bdiminish\w*|\bfell\b|\bdeclin\w*|\bblocked\b)")
+UP_W = re.compile(r"(?i)(?:\bup\b|\u2191|\bincrease[sd]?\b|\brais\w*|\bhigher\b|\benhanc\w*|\belevat\w*|\brose\b|\baugment\w*)")
+
+
+def probe_sign(spec):
+    """A loss-of-function probe of the source protein (X siRNA, X knockdown, X inhibition) that lowers Y shows X
+    sustains Y: activation; one that raises Y shows X restrains Y: inhibition. Fix the sign, say so."""
+    out = []
+    for p in spec.get("panels") or []:
+        lab_of = {str(n.get("id")): n for n in p.get("nodes") or [] if isinstance(n, dict)}
+        for e in p.get("edges") or []:
+            if not isinstance(e, dict) or e.get("type") not in ("activation", "inhibition"):
+                continue
+            f = str(e.get("from"))
+            nd = lab_of.get(f, {})
+            if str(nd.get("kind") or "") in ("drug", "treatment", "compound", "stimulus", "inhibitor", "ligand_drug"):
+                continue
+            names = {f, strip_markup(str(nd.get("label") or f)).split("\n")[0].strip()}
+            alt = "|".join(re.escape(x) for x in sorted(names, key=len, reverse=True) if x)
+            pr = re.compile(r"(?i)(?<![A-Za-z0-9])(?:%s)[\s-]*%s(?![A-Za-z])" % (alt, PROBE_W))
+            lab = strip_markup(str(e.get("label") or ""))
+            m = pr.search(lab)
+            if not m:   # a bare probe ("siRNA: Y down") on an edge leaving the protein probes that protein, unless another node is named before it
+                others_ = [re.escape(x) for x in {str(k) for k in lab_of} | {strip_markup(str(v.get("label") or "")).split("\n")[0].strip() for v in lab_of.values()} if len(x) >= 2 and x not in names]
+                for m2 in re.finditer(r"(?i)(?<![A-Za-z0-9])(?:siRNAs?|shRNAs?|knock[- ]?downs?|knock[- ]?outs?)(?![A-Za-z])", lab):
+                    pre_ = lab[max(0, m2.start() - 30):m2.start()]
+                    if not (others_ and re.search(r"(?i)(?:%s)[\s-]*$" % "|".join(others_), pre_)):
+                        m = m2
+                        break
+            if not m and not pr.search(str(e.get("evidence") or "")):
+                continue
+            tail = lab[m.end():] if m else lab
+            dn, up = bool(DOWN_W.search(tail)), bool(UP_W.search(tail))
+            if dn == up:
+                continue
+            want = "activation" if dn else "inhibition"
+            if e["type"] != want:
+                out.append("SIGN FIXED: panel %s %s -> %s: '%s' is a loss-of-function probe of %s that %s %s, so %s %s %s; drawn as %s. Write `%s` in the line file too." % (
+                    p.get("id"), f, e.get("to"), lab[:70], f, "lowers" if dn else "raises", e.get("to"), f,
+                    "sustains" if dn else "restrains", e.get("to"), want, want))
+                e["type"] = want
+                e["_probe_sign"] = "loss-of-function probe of %s %s %s" % (f, "lowered" if dn else "raised", e.get("to"))
+    return out
+
+
 def cmd_build(a):
     t0 = time.time()
     os.makedirs(OUT, exist_ok=True)
@@ -837,6 +894,10 @@ def cmd_build(a):
             if old_.lower() in strip_markup(str(spec.get("title") or "")).lower():
                 warn.append("EDIT PLAN: the requested edit turns '%s' into '%s', and an edit may only touch the named objects. Keep '%s' out of the title now (a variant-neutral title), name the variant on the objects the edit changes or in the caption." % (old_, new_, old_))
             break
+    try:
+        warn += probe_sign(spec)
+    except Exception as exc:  # never blocks a delivery
+        warn.append("probe-sign check skipped: %s" % exc)
     if True:  # deterministic: v1, the edit and a rebuild give the same classes for unchanged relations
         try:
             from kit_sources import strength_pass, chain_gaps

@@ -30,7 +30,7 @@ sys.path.insert(0, HERE)
 import kit_sources as ks  # noqa: E402
 from kit_sources import INPUT, WORK, OUT, jload, jsave, say, rel, walk_inputs, read_table, table_path, resolve_src, best_quote, write_result, check, trace_numbers, contract, case_id  # noqa: E402
 
-VERSION = "1.24.0"
+VERSION = "1.26.0"
 PPTX = os.path.join(OUT, "presentation.pptx")
 
 
@@ -935,6 +935,48 @@ def all_frames(slide):
     yield from it(slide.shapes)
 
 
+
+PCT_PAD = r"(?<![\d.])(\d+(?:\.(\d+))?)(\s?%)"
+PAD_SKIP = {"old", "find", "match", "src", "source", "sources", "path", "file", "data", "image", "layout", "where", "quote", "id"}
+
+
+def pad_percent(ops, orig):
+    ml_ = " ".join(ks.must_lines()).lower()
+    dm_ = re.search(r"\b(one|two|three|1|2|3)\s+decimals?\s+(?:place\s+)?(?:for|in|on)\s+(?:all\s+)?percent", ml_)
+    if not dm_:
+        return None
+    want = {"one": 1, "two": 2, "three": 3}.get(dm_.group(1)) or int(dm_.group(1))
+    done = []
+
+    def fix(t):
+        def rep(m):
+            if m.group(1) in orig or len(m.group(2) or "") >= want:
+                return m.group(0)
+            ip = m.group(1).split(".")
+            nv = ip[0] + "." + ((ip[1] if len(ip) > 1 else "") + "0" * want)[:want]
+            done.append("%s -> %s%s" % (m.group(0), nv, m.group(3)))
+            return nv + m.group(3)
+        return re.sub(PCT_PAD, rep, t)
+
+    def walk(o):
+        if isinstance(o, dict):
+            for k in list(o):
+                if k in PAD_SKIP:
+                    continue
+                if isinstance(o[k], str):
+                    o[k] = fix(o[k])
+                else:
+                    walk(o[k])
+        elif isinstance(o, list):
+            for i, v in enumerate(o):
+                if isinstance(v, str):
+                    o[i] = fix(v)
+                else:
+                    walk(v)
+    walk(ops)
+    return (want, list(dict.fromkeys(done))) if done else None
+
+
 def cmd_edit(a):
     dk = need_pptx()
     t0 = time.time()
@@ -953,6 +995,12 @@ def cmd_edit(a):
     if not base:
         sys.exit("no starting deck found")
     prs = dk.Presentation(base)
+    try:   # new percentages follow the decimals the order prescribes (padding only: 25% -> 25.0%, never rounding)
+        fx_ = pad_percent(ops, {m_.group(1) for _, t_ in collect_text(dk, prs) for m_ in re.finditer(PCT_PAD, t_)})
+        if fx_:
+            say("NUMBER FORMAT: the order asks for %d decimal(s) in percentages; new text written as %s" % (fx_[0], ", ".join(fx_[1][:8])))
+    except Exception:
+        pass
     before_m = dk.master_hashes(prs)
     orig = list(prs.slides)
     fonts = dk.theme_fonts(prs)
@@ -1415,6 +1463,53 @@ def protected_slides(n):
     return sorted(out)
 
 
+
+def fill_edit_sources(cmap):
+    def toks(t):
+        t = str(t).lower()
+        return set(re.findall(r"\d+(?:\.\d+)?", t)), set(w for w in re.findall(r"[a-z]{4,}", t))
+    ops = {}
+    for c in cmap:
+        if c.get("type") == "edit" and c.get("source"):
+            try:
+                ops.setdefault(int(c.get("slide")), []).append(c)
+            except (TypeError, ValueError):
+                pass
+    for c in cmap:
+        if c.get("type") == "edit" or not c.get("slide"):
+            continue
+        pool = ops.get(int(c["slide"]), [])
+        for it in c.get("items") or []:
+            if it.get("source"):
+                continue
+            t = str(it.get("text") or "")
+            fm = re.search(r"(?i)((?:artifacts/)?[\w.-]+\.(?:csv|tsv|xlsx|json))\b", t)
+            if fm and (os.path.exists(os.path.join(ks.INPUT, fm.group(1))) or glob.glob(os.path.join(ks.INPUT, "**", os.path.basename(fm.group(1))), recursive=True)):
+                it["source"] = [{"id": "file", "file": fm.group(1), "locator": "data file named on the slide", "match": "the slide names this supplied file"}]
+                continue
+            n_, w_ = toks(t)
+            best, bs = None, 0
+            for o in pool:
+                on, ow = toks(json.dumps(o.get("detail") or {}, ensure_ascii=False))
+                sc = 3 * len(n_ & on) + len(w_ & ow)
+                if sc > bs:
+                    best, bs = o, sc
+            if best is None and len(pool) == 1:
+                best = pool[0]
+            if best is not None and (bs >= 2 or len(pool) == 1):
+                it["source"] = [dict(x, match="source of the edit operation that wrote this text (%s)" % best.get("operation")) for x in best["source"][:2] if isinstance(x, dict)]
+        if not c.get("source"):
+            seen, un = set(), []
+            for it in c.get("items") or []:
+                for x in it.get("source") or []:
+                    k = json.dumps(x, sort_keys=True)[:200]
+                    if k not in seen and len(un) < 2:
+                        seen.add(k)
+                        un.append(x)
+            if un:
+                c["source"] = un
+
+
 def finish(d, warn, log, mode, master_before, tpl, t0, start=None, edit_log=None):
     dk = need_pptx()
     problems, cmap, untraced, unsourced = [], [], [], []
@@ -1539,6 +1634,11 @@ def finish(d, warn, log, mode, master_before, tpl, t0, start=None, edit_log=None
             o = x["op"] if isinstance(x["op"], dict) else {"op": x["op"]}
             cmap.append({"type": "edit", "operation": o.get("op"), "slide": o.get("slide") or o.get("after"), "detail": {k: v for k, v in o.items() if k not in ("op", "src")},
                          "result": x["result"], "source": ks.tidy(resolve_src(o.get("src"), problems, "edit"), str(o.get("new") or o.get("text") or ""))})
+    if mode in ("adapt", "edit"):   # text an edit wrote keeps the source of the operation that wrote it
+        try:
+            fill_edit_sources(cmap)
+        except Exception as exc:   # never blocks a delivery
+            warn.append("edit-source fill skipped: %s" % exc)
     pdf, ver = render_pdf()
     pngs, sheet = previews(pdf)
     pngs += hidden_previews(dk, prs, ver)
